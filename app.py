@@ -390,15 +390,15 @@ def after_request_logging(response):
 @login_required
 def index():
     search_query = request.args.get('search', '')
+    # --- NEW: Capture the view_all parameter ---
+    view_all = request.args.get('view_all') == 'true'
 
     # --- Query Firestore for the user's quizzes and order by creation date ---
     quizzes_query = db.collection('quizzes').where('user_id', '==', current_user.id)
-
-    # Order by 'created_at' in descending order (newest first)
     quizzes_query = quizzes_query.order_by('created_at', direction=firestore.Query.DESCENDING)
 
-    # --- NEW ADDITION: Limit to 5 only if there is no search query ---
-    if not search_query:
+    # --- UPDATED: Limit to 5 only if there is NO search query AND view_all is not true ---
+    if not search_query and not view_all:
         quizzes_query = quizzes_query.limit(5)
 
     all_quizzes = []
