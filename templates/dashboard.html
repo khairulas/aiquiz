@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Your Dashboard</h1>
+<h1>Quiz Dashboard</h1>
 
-<form method="GET" action="{{ url_for('index') }}" class="quiz-filter-form" style="display: flex; gap: 10px; align-items: center;">
+<form method="GET" action="{{ url_for('index') }}" class="quiz-filter-form">
     <input type="text" name="search" placeholder="Filter by quiz title..." value="{{ search_query or '' }}">
     <button type="submit">Filter</button>
-    <a href="{{ url_for('index', view_all='true') }}" class="btn" style="background-color: #6c757d; text-decoration: none;">View All</a>
+    <a href="{{ url_for('index', view_all='true') }}" class="btn btn-secondary">View All</a>
 </form>
 
 <p>Here are the quizzes you've created.</p>
