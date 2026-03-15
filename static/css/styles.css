@@ -347,7 +347,53 @@ button:hover {
     fill: #007bff;
 }
 
+/* --- Button Link Styles --- */
+.btn {
+    display: inline-block;
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 15px;
+    text-decoration: none;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 16px;
+    box-sizing: border-box;
+    cursor: pointer;
+}
 
+.btn:hover {
+    background-color: #45a049;
+    color: white;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+}
+
+/* --- Dashboard Filter Form Layout --- */
+.quiz-filter-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+}
+
+.quiz-filter-form input[type="text"] {
+    flex: 1; /* Makes the search bar take up the remaining space */
+    width: auto; 
+    margin-bottom: 0; /* Removes default bottom margin */
+}
+
+.quiz-filter-form button,
+.quiz-filter-form .btn {
+    width: auto; /* Stops the buttons from trying to be 100% wide */
+    white-space: nowrap; /* Prevents the button text from wrapping to two lines */
+    margin-bottom: 0;
+}
 
 /* Responsive Styles */
 
