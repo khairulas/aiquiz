@@ -394,19 +394,14 @@ def index():
     # --- Query Firestore for the user's quizzes and order by creation date ---
     quizzes_query = db.collection('quizzes').where('user_id', '==', current_user.id)
 
-    # ✅ FIX: Order by 'created_at' in descending order (newest first)
+    # Order by 'created_at' in descending order (newest first)
     quizzes_query = quizzes_query.order_by('created_at', direction=firestore.Query.DESCENDING)
 
-    all_quizzes = []
+    # --- NEW ADDITION: Limit to 5 only if there is no search query ---
+    if not search_query:
+        quizzes_query = quizzes_query.limit(5)
 
-    # You are running a query that combines a filter and a sort:
-    # 1. where('user_id', '==', ...)
-    # 2. order_by('created_at', ...)
-    #
-    # Firestore requires a composite index for this. Since you hit the error,
-    # we need to proceed with the manual index creation again.
-    # The next attempt to run quizzes_query.stream() will likely fail again
-    # until the index is created.
+    all_quizzes = []
 
     try:
         for doc in quizzes_query.stream():
