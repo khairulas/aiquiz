@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Quiz</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" type="image/x-icon">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-content">
+            <div class="header-left">
+                <a href="{{ url_for('index') }}" class="site-title">
+                    <img src="{{ url_for('static', filename='images/aiquiz-logo.png') }}" alt="App Logo" style="height: 40px; margin-right: 10px;">
+                    <br>AI-Quiz Generator
+                </a>
+                
+                <nav class="main-nav">
+                    {% if current_user.is_authenticated %}
+                        <a href="{{ url_for('index') }}" class="nav-link">Dashboard</a>
+                        <a href="{{ url_for('create_quiz') }}" class="nav-link">Create New Quiz</a>
+                    {% endif %}
+                </nav>
+            </div>
+            
+            <nav class="user-nav">
+                {% if current_user.is_authenticated %}
+                    <span class="user-name">Welcome, {{ current_user.username }}</span>
+                     <a href="{{ url_for('change_password') }}" class="nav-link">Change Password</a>
+                    <a href="{{ url_for('logout') }}" class="nav-link">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="nav-link">Login</a>
+                    <a href="{{ url_for('register') }}" class="nav-link">Register</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+    
+    <!-- page Footer -->
+    <footer class="app-footer">
+        <p>
+            <strong>Disclaimer:</strong> This tool is powered by generative AI. It may produce inaccurate or biased information.
+            Always review and verify the generated questions and answers for accuracy and appropriateness before use.
+        </p>
+        <p>
+            &copy; {{ now.split('-')[0] }} AI-Quiz Generator. All Rights Reserved.
+        </p>
+    </footer>
+</body>
+</html>

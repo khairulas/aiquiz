@@ -1,0 +1,6 @@
+.env
+*.json
+venv/
+__pycache__/
+app.log
+sa-final.json

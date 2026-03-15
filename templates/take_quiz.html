@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% if time_limit_minutes %}
+<div class="timer-widget">
+    Time Remaining: <span id="countdown-timer">--:--</span>
+</div>
+{% endif %}
+
+<h1>{{ quiz.title }}</h1>
+<p>Please answer the questions below.</p>
+
+<form id="quiz-form" method="POST" action="{{ url_for('submit_quiz', public_id=quiz.public_id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+        <label for="student_name">Your Name:</label>
+        <input type="text" id="student_name" name="student_name" size="30" required class="form-control">
+    </div>
+    <hr>
+    
+    {% for question in questions %}
+    <div class="question-card">
+        <h3>Question {{ loop.index }}:</h3>
+        <p class="question-text">{{ question.content }}</p>
+
+        {% if question.question_type|trim == 'MCQ' %}
+            <div class="options-group">
+                {% for option in question.options.split('\n') %}
+                <div class="option">
+                    <input type="radio" name="question_{{ question.id }}" id="q{{ question.id }}-opt{{ loop.index }}" value="{{ option }}" required>
+                    <label for="q{{ question.id }}-opt{{ loop.index }}">
+                        <strong>{{ ['A', 'B', 'C', 'D'][loop.index0] }})</strong> {{ option }}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        
+        {% elif question.question_type|trim == 'True/False' %}
+            <div class="options-group">
+                <div class="option">
+                    <input type="radio" name="question_{{ question.id }}" id="q{{ question.id }}-opt-true" value="True" required>
+                    <label for="q{{ question.id }}-opt-true">True</label>
+                </div>
+                <div class="option">
+                    <input type="radio" name="question_{{ question.id }}" id="q{{ question.id }}-opt-false" value="False" required>
+                    <label for="q{{ question.id }}-opt-false">False</label>
+                </div>
+            </div>
+        
+        {% elif question.question_type|trim == 'Fill-in-the-Blank' %}
+            <div class="form-group">
+                <!-- Question 5 worked with this code. Question 8 will now also work because the type is cleaned in app.py. -->
+                <label for="question_{{ question.id }}">Fill in the blank:</label>
+                <input type="text" 
+                    id="question_{{ question.id }}" 
+                    name="question_{{ question.id }}" 
+                    class="form-control" 
+                    required>
+            </div>
+        
+        {% elif question.question_type|trim == 'Short Answer' %}
+            <div class="form-group">
+                <label for="question_{{ question.id }}">Your Answer:</label>
+                <textarea id="question_{{ question.id }}" 
+                        name="question_{{ question.id }}" 
+                        class="form-control" 
+                        rows="3" 
+                        required></textarea>
+            </div>
+        
+        {% endif %}
+    </div>
+    {% endfor %}
+    
+    <button type="submit" class="btn-save">Submit Answers</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // FIX: Use default(None) to prevent syntax errors if variables are missing
+    const timeLimitMinutes = {{ time_limit_minutes|default(None)|tojson }};
+    const closesAtISO = {{ closes_at_iso|default(None)|tojson }};
+    const timerDisplay = document.getElementById('countdown-timer');
+    const quizForm = document.getElementById('quiz-form');
+
+    // The rest of your script logic remains the same...
+    if (!timeLimitMinutes || !timerDisplay || !quizForm) {
+        return; // No timer for this quiz
+    }
+
+    // --- Determine the actual end time ---
+    const now = new Date();
+    // 1. End time based on the time limit
+    const endTimeFromLimit = new Date(now.getTime() + timeLimitMinutes * 60000);
+    
+    // 2. End time based on the hard close date of the quiz
+    const endTimeFromSchedule = closesAtISO ? new Date(closesAtISO) : null;
+
+    // The final deadline is the EARLIER of the two end times
+    let finalEndTime = endTimeFromLimit;
+    if (endTimeFromSchedule && endTimeFromSchedule < endTimeFromLimit) {
+        finalEndTime = endTimeFromSchedule;
+    }
+    
+    // --- Countdown Logic ---
+    const timerInterval = setInterval(function() {
+        const remaining = finalEndTime - new Date();
+
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+
+            // Show a non-blocking message that the quiz is submitting
+            timerDisplay.innerHTML = '<strong style="color: red;">Time is up! Submitting...</strong>';
+            
+            // Submit the form with all answer fields enabled
+            quizForm.submit();
+            return;
+        }
+
+        const minutes = Math.floor((remaining / 1000) / 60);
+        const seconds = Math.floor((remaining / 1000) % 60);
+
+        timerDisplay.textContent = 
+            minutes.toString().padStart(2, '0') + ":" + 
+            seconds.toString().padStart(2, '0');
+
+    }, 1000);
+});
+</script>
+
+{% endblock %}

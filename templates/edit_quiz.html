@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Edit Quiz: {{ quiz.title }}</h1>
+
+<form method="POST" action="{{ url_for('edit_quiz', public_id=quiz.public_id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- Editable Quiz Title -->
+    <div class="form-group">
+        <label for="quiz_title">Quiz Title</label>
+        <input type="text" id="quiz_title" name="quiz_title" value="{{ quiz.title }}" required>
+    </div>
+
+    <h2>Quiz Schedule & Timer (Optional)</h2>
+    <div class="form-group">
+        <label for="opens_at">Opens On</label>
+        <input type="datetime-local" id="opens_at" name="opens_at"
+               value="{{ quiz.opens_at|myt }}">
+    </div>
+
+    <div class="form-group">
+        <label for="closes_at">Closes On</label>
+        <input type="datetime-local" id="closes_at" name="closes_at"
+               value="{{ quiz.closes_at|myt }}">
+    </div>
+
+    <div class="form-group">
+        <label for="time_limit">Time Limit (in minutes)</label>
+        <input type="number" id="time_limit" name="time_limit" min="1"
+               value="{{ quiz.time_limit if quiz.time_limit }}">
+    </div>
+
+    <hr>
+    <h3>Questions:</h3>
+
+    <!-- Loop through each question to create an editable card -->
+    {% for question in questions %}
+    <div class="question-card">
+        <h4>Question {{ loop.index }} ({{ question.question_type }})</h4>
+        
+        <!-- Hidden input to track the question ID -->
+        <input type="hidden" name="question_id_{{ loop.index0 }}" value="{{ question.id }}">
+
+        <div class="form-group">
+            <label for="question_text_{{ loop.index0 }}">Question Text</label>
+            <textarea name="question_text_{{ loop.index0 }}" rows="3" required>{{ question.content }}</textarea>
+        </div>
+
+        {% if question.question_type == 'MCQ' %}
+        <div class="form-group">
+            <label for="options_{{ loop.index0 }}">Options (one per line)</label>
+            <textarea name="options_{{ loop.index0 }}" rows="4" required>{{ question.options }}</textarea>
+        </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="answer_{{ loop.index0 }}">Correct Answer</label>
+            <input type="text" name="answer_{{ loop.index0 }}" value="{{ question.answer }}" required>
+        </div>
+    </div>
+    {% endfor %}
+
+    <button type="submit">Save Changes</button>
+</form>
+
+<a href="{{ url_for('index') }}" class="btn-secondary">Cancel</a>
+{% endblock %}

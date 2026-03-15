@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Results for: {{ quiz.title }}</h1>
+
+<form method="GET" action="{{ url_for('view_attempts', public_id=quiz.public_id) }}" class="attempt-filter-form">
+    <div class="filter-group">
+        <label for="student_name">Student Name:</label>
+        <input type="text" id="student_name" name="student_name" placeholder="Filter by name..." value="{{ student_name_filter or '' }}">
+    </div>
+    <div class="filter-group">
+        <label for="submission_date">Date Submitted:</label>
+        <input type="date" id="submission_date" name="submission_date" value="{{ date_filter or '' }}">
+    </div>
+    <button type="submit">Filter Results</button>
+</form>
+<hr>
+
+<div class="overall-analysis-link">
+    <a href="{{ url_for('overall_analysis', public_id=quiz.public_id) }}" class="btn">
+        Generate Overall Class Analysis
+    </a>
+</div>
+<p>Here are all the attempts submitted by students for this quiz.</p>
+
+{% if attempts %}
+    <table class="results-table">
+        <thead>
+            <tr>
+                <th>Student Name</th>
+                <th>Score</th>
+                <th>Percentage</th>
+                <th>Date Submitted</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for attempt in attempts %}
+            <tr>
+                <td>{{ attempt.student_name }}</td>
+                <td>{{ attempt.score }} / {{ attempt.total_score }}</td>
+                <td>{{ '%.2f'|format(attempt.percentage) }}%</td>
+                <td>{{ attempt.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No one has attempted this quiz yet.</p>
+{% endif %}
+
+<a href="{{ url_for('index') }}" class="btn">Back to Dashboard</a>
+
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Results for: {{ quiz.title }}</h1>
+<h2 class="score">Your Score: {{ score }} / {{ total_score }} ({{ '%.2f'|format(percentage) }}%)</h2>
+
+<hr>
+
+<h3>Answer Review:</h3>
+{% for result in results %}
+<div class="question-card {% if result.is_correct %}correct{% else %}incorrect{% endif %}">
+    <h4>Question {{ loop.index }}: {{ result.question.content }}</h4>
+
+    <p><strong>Your Answer:</strong> {{ result.student_answer }}</p>
+
+    {% if not result.is_correct %}
+        <p><strong>Correct Answer:</strong> {{ result.correct_answer }}</p>
+    {% endif %}
+
+    {% if result.is_correct %}
+        <span class="status-badge correct-badge">✔ Correct</span>
+    {% else %}
+        <span class="status-badge incorrect-badge">✖ Incorrect</span>
+    {% endif %}
+</div>
+{% endfor %}
+
+<a href="{{ url_for('index') }}" class="btn">Back to Dashboard</a>
+
+{% endblock %}

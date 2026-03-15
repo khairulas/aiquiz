@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Overall Performance Analysis</h1>
+<h3>Quiz: {{ quiz.title }}</h3>
+<p>
+    This analysis is based on <strong>{{ quiz.attempts|length }}</strong> student attempt(s) and highlights common trends.
+</p>
+
+<div class="reanalyze-section">
+    <a href="{{ url_for('overall_analysis', public_id=quiz.public_id, force_reanalyze=true) }}" class="btn-sm">
+        Re-analyze with Newest Attempts
+    </a>
+</div>
+
+<div class="analysis-container">
+    {{ analysis_html | markdown }}
+</div>
+
+<a href="{{ url_for('view_attempts', public_id=quiz.public_id) }}" class="btn">Back to Individual Attempts</a>
+
+{% endblock %}

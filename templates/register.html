@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Register</h1>
+    <p>Create a new account to start generating quizzes.</p>
+
+    <form method="POST" action="{{ url_for('register') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+
+        <div class="form-group">
+            <label for="confirm_password">Confirm Password</label>
+            <input type="password" id="confirm_password" name="confirm_password" required>
+        </div>
+
+        <!-- ✅ ADD THIS NEW CHECKBOX SECTION -->
+        <div class="form-group">
+            <label style="display: flex; align-items: center; font-weight: normal;">
+                <input type="checkbox" id="agree_terms" name="agree_terms" required style="width: auto; margin-right: 10px;">
+                I agree to the <a href="{{ url_for('terms') }}" target="_blank" style="margin-left: 5px; margin-right: 5px;">Terms of Use</a> and <a href="{{ url_for('privacy') }}" target="_blank" style="margin-left: 5px;">Privacy Policy</a>.
+            </label>
+        </div>
+        
+        <button type="submit">Register</button>
+    </form>
+    
+    <p class="auth-switch">
+        Already have an account? <a href="{{ url_for('login') }}">Login here</a>
+    </p>
+{% endblock %}

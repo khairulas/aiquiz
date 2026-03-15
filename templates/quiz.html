@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>{{ quiz.title }}</h1>
+
+<div class="share-widget">
+    <div class="share-widget-left">
+        <h3>Share Quiz</h3>
+        <p>Use the link or QR code to share this quiz with your students.</p>
+        
+        <!-- In templates/quiz.html, inside the .share-widget-left div -->
+
+        <div class="code-widget">
+            <div class="code-widget-header">
+                <div class="header-text">Quiz Link</div>
+                <div class="code-copy-button-container">
+                <button id="copy-link-button" class="code-copy-button" title="Copy link to clipboard">
+                    <svg class="copy-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                </button>
+                </div>
+            </div>
+            <div id="shareable-link-content" class="code-content">
+                {{ url_for('take_quiz', public_id=quiz.public_id, _external=True) }}
+            </div>
+        </div>
+    </div>
+    
+    <div class="share-widget-right">
+        <div class="qr-code">
+            <img src="{{ url_for('quiz_qr_code', public_id=quiz.public_id) }}" alt="Quiz QR Code">
+        </div>
+    </div>
+</div>
+
+{% for question in questions %}
+<div class="question-card">
+    <h3>Question {{ loop.index }} ({{ question.question_type }})</h3>
+    <p class="question-text">{{ question.content }}</p>
+    
+    {% if question.question_type == 'MCQ' and question.options %}
+    <div class="options">
+        <h4>Options:</h4>
+        <ul>
+            {% for option in question.options.split('\n') %}
+            <li><strong>{{ ['A', 'B', 'C', 'D'][loop.index0] }})</strong> {{ option }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    
+    <div class="answer">
+        <strong>Answer:</strong> {{ question.answer }}
+    </div>
+</div>
+{% endfor %}
+
+<a href="{{ url_for('index') }}" class="btn">Back to Dashboard</a>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const copyButton = document.getElementById('copy-link-button');
+        const linkContent = document.getElementById('shareable-link-content');
+        const originalIcon = copyButton.innerHTML;
+        const checkIcon = '✅'; // A simple checkmark for feedback
+
+        copyButton.addEventListener('click', function() {
+            // Get the text from the div, trimming any extra whitespace
+            const textToCopy = linkContent.textContent.trim();
+
+            navigator.clipboard.writeText(textToCopy).then(function() {
+                // Provide visual feedback
+                copyButton.innerHTML = checkIcon;
+                setTimeout(function() {
+                    copyButton.innerHTML = originalIcon;
+                }, 2000);
+            }).catch(function(err) {
+                console.error('Failed to copy text: ', err);
+            });
+        });
+    });
+</script>
+
+{% endblock %}

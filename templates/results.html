@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Generated Questions</h1>
+    
+    <div class="questions-display-area">
+        {% for question in questions_list %}
+        <div class="question-card">
+            <p><strong>Question {{ loop.index }}:</strong> [Type: {{ question.type }}] [Marks: {{ question.marks }}] [Bloom: {{ question.bloom_level }}]</p>
+            <p>{{ question.text }}</p>
+            
+            {% if question.type == 'MCQ' and question.options %}
+            <ul class="mcq-options">
+                {% for option in question.options.split('\n') %}
+                <li>{{ ['A', 'B', 'C', 'D'][loop.index0] }}) {{ option }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            
+            <p><strong>Answer:</strong> {{ question.answer }}</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <hr>
+    
+    <form action="{{ url_for('save_questions') }}" method="POST" class="save-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        
+        <input type="hidden" name="questions_text" value="{{ raw_questions_text }}">
+        
+        <div class="form-group">
+            <label for="quiz_title">Quiz Title:</label>
+            <input type="text" id="quiz_title" name="quiz_title" value="New Quiz - {{ now }}" required>
+        </div>
+        
+        <button type="submit">Save Questions</button>
+    </form>
+    
+    <a href="{{ url_for('index') }}" class="btn-secondary">Back to Generator</a>
+
+{% endblock %}

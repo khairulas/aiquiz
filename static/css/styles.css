@@ -1,0 +1,435 @@
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0; /* Changed padding to 0 for full-width header */
+    background-color: #f5f5f5;
+}
+
+.container {
+    max-width: 800px;
+    margin: 20px auto; /* Added margin-top */
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+h1 {
+    color: #333;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+textarea, input[type="text"], input[type="number"], select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+textarea {
+    min-height: 150px;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    width: 100%;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+.questions-container {
+    margin-top: 20px;
+    white-space: pre-line;
+}
+
+.app-footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #666;
+    border-top: 1px solid #eee;
+}
+
+.question-card {
+    background: #f8f9fa;
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid #eee;
+    border-radius: 8px;
+}
+
+.question-text {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.options ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+
+.options li {
+    padding: 5px 0;
+}
+
+.answer {
+    color: #28a745;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+/* New styles for radio button options in quizzes */
+.options-group {
+    margin-top: 10px;
+}
+
+.option {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px; /* Adds space between options */
+}
+
+.option label {
+    margin-left: 8px; /* Adds space between the radio button and the text */
+}
+
+.share-widget {
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 25px;
+    margin-bottom: 20px;
+}
+
+.share-widget-left {
+    flex: 1;
+}
+
+.share-widget-right {
+    text-align: center;
+}
+
+.share-widget h3 {
+    margin-top: 0;
+    font-size: 1.2em;
+    color: #333;
+}
+
+.share-widget-left .code-widget {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.code-widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center; /* CORRECTED THIS LINE */
+    padding: 8px 12px;
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    color: #495057;
+    font-size: 0.85em;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.code-widget-header .header-text {
+    font-weight: bold;
+}
+
+.code-content {
+    padding: 12px;
+    font-size: 0.9em;
+    color: #212529;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+.code-copy-button {
+    background: transparent !important;
+    border: none !important;
+    padding: 4px !important;
+    cursor: pointer;
+    border-radius: 5px;
+    line-height: 0;
+    transition: background-color 0.2s;
+}
+
+.code-copy-button:hover {
+    background-color: #ced4da !important;
+}
+
+.code-copy-button svg {
+    width: 20px !important;
+    height: 20px !important;
+    fill: #495057 !important;
+}
+
+.qr-code img {
+    max-width: 120px;
+    height: auto;
+    border: 1px solid #eee;
+    padding: 5px;
+    background: white;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+.results-table th, .results-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+.results-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+.app-header {
+    background-color: #ffffff;
+    padding: 10px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.header-content {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+}
+
+.main-nav {
+    display: flex;
+    gap: 20px;
+}
+
+.site-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #333;
+    text-decoration: none;
+}
+
+.user-nav {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-name {
+    color: #555;
+    font-size: 0.9em;
+}
+
+.nav-link {
+    color: #007bff;
+    text-decoration: none;
+    font-size: 0.9em;
+    font-weight: bold;
+    padding: 8px 12px;
+    border-radius: 5px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.nav-link:hover {
+    text-decoration: none;
+    background-color: #f0f0f0;
+}
+
+.overall-analysis-link {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.reanalyze-section {
+    margin-bottom: 20px;
+}
+
+.btn-delete-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+    vertical-align: middle;
+}
+
+.btn-delete-icon svg {
+    fill: #6c757d;
+    transition: fill 0.2s;
+}
+
+.btn-delete-icon:hover {
+    background-color: #fce8e6;
+}
+
+.btn-delete-icon:hover svg {
+    fill: #dc3545;
+}
+
+.quiz-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.btn-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.btn-action-icon svg {
+    fill: #6c757d;
+    width: 20px;
+    height: 20px;
+    transition: fill 0.2s;
+}
+
+.btn-action-icon:hover {
+    background-color: #e9ecef;
+}
+
+.btn-action-icon:hover svg {
+    fill: #007bff;
+}
+
+
+
+/* Responsive Styles */
+
+@media (max-width: 768px) {
+    body {
+        padding: 10px; /* Reduce body padding on small screens */
+    }
+
+    .container, .header-content {
+        max-width: 100%; /* Allow container to be full-width */
+        padding: 15px;
+    }
+
+    /* Make the header stack vertically */
+    .header-content, .header-left {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .main-nav {
+        margin-top: 10px;
+    }
+
+    h1 {
+        font-size: 1.8em; /* Slightly smaller title */
+    }
+
+    /* Make the Share Widget stack vertically */
+    .share-widget {
+        flex-direction: column;
+        align-items: stretch; /* Make children full-width */
+    }
+
+    .share-widget-right {
+        margin-top: 15px; /* Add space above the QR code */
+        align-self: center; /* Center the QR code block */
+    }
+
+    button {
+        padding: 12px 15px; /* Slightly larger buttons for easier tapping */
+    }
+
+    /* Add these new rules for the quiz-taking page */
+    .container {
+        padding: 10px; /* Reduce padding for the main box */
+    }
+
+    h1 {
+        font-size: 1.5em; /* Make the main title smaller */
+    }
+
+    .question-card {
+        padding: 10px; /* Reduce padding inside question boxes */
+    }
+
+    /* Ensure form elements use the full width */
+    .form-group, .options {
+        padding-left: 0;
+        padding-right: 0;
+    }
+}
+/* End of Responsive Styles */
+
+/* styles for alerts */
+/* These styles are for the alert messages that appear at the top of the page */
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.alert-danger {
+    color: #721c24;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+}
+
+.alert-success {
+    color: #155724;
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+}
+/* end of styles for alerts */

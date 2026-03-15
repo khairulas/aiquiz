@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Educational Question Generator</h1>
+    <p>Generate questions based on your course materials using teknologi gnerative AI. It may make mistake. Please check the output before use it.</p>
+
+    <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-group">
+            <label for="course_material">Course Material (Paste Text):</label>
+            <textarea id="course_material" name="course_material" rows="10"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="pdf_file">Or Upload a PDF Document:</label>
+            <input type="file" id="pdf_file" name="pdf_file" accept=".pdf">
+        </div>
+
+        <div class="form-group">
+            <label>Question Types:</label>
+            <div class="checkbox-group">
+
+                <!-- ✅ NEW ORDER: 1. True/False -->
+                <label><input type="checkbox" name="question_types" value="True/False" checked> True/False</label>
+
+                <!-- ✅ NEW ORDER: 2. Multiple Choice -->
+                <label><input type="checkbox" name="question_types" value="MCQ" checked> Multiple Choice (MCQ)</label>
+
+                <!-- ✅ NEW ORDER: 3. Fill-in-the-Blank -->
+                <label><input type="checkbox" name="question_types" value="Fill-in-the-Blank" checked> Fill-in-the-Blank</label>
+
+                <!-- ✅ NEW ORDER: 4. Short Answer -->
+                <label><input type="checkbox" name="question_types" value="Short Answer"> Short Answer</label>
+
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="bloom_level">Bloom's Taxonomy Level:</label>
+            <select id="bloom_level" name="bloom_level" required>
+                <option value="Remembering">Remembering</option>
+                <option value="Understanding">Understanding</option>
+                <option value="Applying">Applying</option>
+                <option value="Analyzing">Analyzing</option>
+                <option value="Evaluating">Evaluating</option>
+                <option value="Creating">Creating</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="num_questions">Number of Questions:</label>
+            <input type="number" id="num_questions" name="num_questions" min="1" max="20" value="2" required>
+        </div>
+
+        <button type="submit">Generate Questions</button>
+    </form>
+{% endblock %}

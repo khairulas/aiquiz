@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your Dashboard</h1>
+
+<form method="GET" action="{{ url_for('index') }}" class="quiz-filter-form">
+    <input type="text" name="search" placeholder="Filter by quiz title..." value="{{ search_query or '' }}">
+    <button type="submit">Filter</button>
+</form>
+
+<p>Here are the quizzes you've created.</p>
+<a href="{{ url_for('create_quiz') }}" class="btn">Create a New Quiz</a>
+<hr>
+
+{% if quizzes %}
+    {% for quiz in quizzes %}
+        <div class="question-card">
+            <h3>{{ quiz.title }}</h3>
+            <p><strong>Attempts: {{ quiz.attempts_count }}
+                {% if quiz.opens_at %}
+                    <strong>Opens:</strong> {{ quiz.opens_at.strftime('%Y-%m-%d %I:%M %p') }}
+                {% endif %}
+                {% if quiz.closes_at %}
+                    <strong>Closes:</strong> {{ quiz.closes_at.strftime('%Y-%m-%d %I:%M %p') }}
+                {% endif %}
+            </p>
+
+           <div class="quiz-actions">
+                <a href="{{ url_for('view_quiz', public_id=quiz.public_id) }}" class="btn-action-icon" title="View/Share Quiz">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                    </svg>
+                </a>
+
+                <a href="{{ url_for('view_attempts', public_id=quiz.public_id) }}" class="btn-action-icon" title="View Attempts">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                    </svg>
+                </a>
+
+                <a href="{{ url_for('edit_quiz', public_id=quiz.public_id) }}" class="btn-action-icon" title="Edit Quiz">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v5"></path><path d="M16 2.5l4 4"></path><path d="M7 18a5 5 0 0 1-5-5a5 5 0 0 1 5-5"></path></svg>
+                </a>
+
+                <form action="{{ url_for('delete_quiz', public_id=quiz.public_id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this quiz permanently?');" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn-delete-icon" title="Delete Quiz">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                    </button>
+                </form>
+           </div>
+        </div>
+    {% endfor %}
+{% else %}
+    <p>You haven't created any quizzes yet.</p>
+{% endif %}
+
+{% endblock %}
