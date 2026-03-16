@@ -340,32 +340,42 @@ def send_reset_email(user):
         app.logger.error(f"Failed to send email: {e}")
         raise
 
-def grade_short_answer_with_gemini(correct_answer, student_answer):
-    """Sends answers to Gemini for grading and parses the JSON response."""
+def grade_short_answer_with_gemini(correct_answer, student_answer, max_marks):
+    """Sends answers to Gemini for partial-credit grading and parses the JSON response."""
     start_time = time.time()
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
         You are an expert examiner grading a short-answer question.
-        Determine if the student's answer is semantically and factually correct based on the answer key.
-        The student's answer can be a subset of the key, as long as it is accurate.
+        The maximum possible marks for this question is {max_marks}.
+        Evaluate the student's answer against the answer key.
+        - Award full marks ({max_marks}) if the answer is complete and accurate.
+        - Award partial marks (e.g., 1 or 2) if the answer is incomplete but contains some correct elements.
+        - Award 0 marks if the answer is completely wrong or irrelevant.
 
         **Answer Key:** "{correct_answer}"
         **Student's Answer:** "{student_answer}"
 
-        Respond ONLY in JSON format with one key: "is_correct" (boolean).
+        Respond ONLY in JSON format with one key: "awarded_marks" (integer).
         """
 
         response = model.generate_content(prompt)
         duration = time.time() - start_time
         app.logger.info(f"Gemini API call for short answer grading took {duration:.2f}s.")
-        cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
-        grade_data = json.loads(cleaned_response)
-        return grade_data.get('is_correct', False)
+        
+        # Safely extract the JSON object in case Gemini includes markdown
+        json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if json_match:
+            grade_data = json.loads(json_match.group(0))
+            awarded = int(grade_data.get('awarded_marks', 0))
+            # Ensure the AI doesn't accidentally award negative points or more than the max
+            return max(0, min(awarded, max_marks))
+            
+        return 0
 
     except Exception as e:
         app.logger.error(f"Gemini API grading error: {str(e)}")
-        return False
+        return 0
 
 def create_overall_analysis_prompt(summary_data):
     """Creates a prompt for Gemini to analyze a whole class's performance."""
@@ -1091,35 +1101,32 @@ def submit_quiz(public_id):
             student_answer_text = request.form.get(f'question_{q_id}', 'Not Answered')
             correct_answer_text = q_data.get('answer', '').strip()
 
+            marks_earned = 0
             is_correct = False
+
             if q_data['question_type'] in ['MCQ', 'True/False', 'Fill-in-the-Blank']:
-                
-                # 1. Normalize both answers first (handles "five" vs "5")
                 norm_student = normalize_answer(student_answer_text)
                 norm_correct = normalize_answer(correct_answer_text)
                 
-                # 2. Check for exact match (fastest)
                 if norm_student == norm_correct:
                     is_correct = True
+                    marks_earned = question_marks
                 else:
-                    # 3. If not exact, check fuzzy match (handles typos like "prediciton")
-                    # fuzz.ratio returns a score from 0 to 100
                     similarity_score = fuzz.ratio(norm_student, norm_correct)
-                    
-                    # You can tweak this threshold. 85 is usually safe for catching typos 
-                    # without accepting entirely wrong words.
                     if similarity_score >= 85:
                         is_correct = True
+                        marks_earned = question_marks
 
             elif q_data['question_type'] == 'Short Answer':
                 if student_answer_text != 'Not Answered':
-                    is_correct = grade_short_answer_with_gemini(correct_answer_text, student_answer_text)
+                    # NEW: Pass the question_marks to Gemini and get an integer back
+                    marks_earned = grade_short_answer_with_gemini(correct_answer_text, student_answer_text, question_marks)
+                    
+                    # Treat anything above 0 as "correct" so it gets the green checkmark
+                    is_correct = marks_earned > 0 
 
-            if is_correct:
-                score += question_marks
-                marks_earned = question_marks  # <-- Make sure this line exists
-            else:
-                marks_earned = 0               # <-- Make sure this line exists
+            # Add the specifically earned marks to the total score
+            score += marks_earned
 
             # For display on the results page
             results_for_template.append({
@@ -1127,9 +1134,9 @@ def submit_quiz(public_id):
                 'student_answer': student_answer_text,
                 'correct_answer': correct_answer_text,
                 'is_correct': is_correct,
-                'marks_earned': marks_earned   # <-- Check the spelling here!
+                'marks_earned': marks_earned
             })
-
+            
             # For storing in the 'student_answers' subcollection
             student_answers_for_db.append({
                 'question_id': q_id,
