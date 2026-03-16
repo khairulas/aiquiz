@@ -21,8 +21,15 @@
     
     {% for question in questions %}
     <div class="question-card">
-        <h3>Question {{ loop.index }}:</h3>
-        <p class="question-text">{{ question.content }}</p>
+    
+        <h4>
+            Question {{ loop.index }}: 
+            <span style="font-size: 0.8em; color: #666; font-weight: normal;">
+                ({{ question.marks }} marks)
+            </span>
+        </h4>
+        
+        <p>{{ question.content }}</p>
 
         {% if question.question_type|trim == 'MCQ' %}
             <div class="options-group">

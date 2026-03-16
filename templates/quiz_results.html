@@ -10,17 +10,18 @@
 {% for result in results %}
 <div class="question-card {% if result.is_correct %}correct{% else %}incorrect{% endif %}">
     <h4>Question {{ loop.index }}: {{ result.question.content }}</h4>
-
+    
     <p><strong>Your Answer:</strong> {{ result.student_answer }}</p>
 
-    {% if not result.is_correct %}
-        <p><strong>Correct Answer:</strong> {{ result.correct_answer }}</p>
-    {% endif %}
-
     {% if result.is_correct %}
-        <span class="status-badge correct-badge">✔ Correct</span>
+        <p style="color: green; font-weight: bold;">
+            ✓ Correct ({{ result.marks_earned }} / {{ result.question.marks }} marks)
+        </p>
     {% else %}
-        <span class="status-badge incorrect-badge">✖ Incorrect</span>
+        <p style="color: red; font-weight: bold;">
+            ✗ Incorrect ({{ result.marks_earned }} / {{ result.question.marks }} marks)
+        </p>
+        <p><strong>Correct Answer:</strong> {{ result.correct_answer }}</p>
     {% endif %}
 </div>
 {% endfor %}

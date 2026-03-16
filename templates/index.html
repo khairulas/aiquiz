@@ -18,39 +18,79 @@
         </div>
 
         <div class="form-group">
-            <label>Question Types:</label>
-            <div class="checkbox-group">
-
-                <!-- ✅ NEW ORDER: 1. True/False -->
-                <label><input type="checkbox" name="question_types" value="True/False" checked> True/False</label>
-
-                <!-- ✅ NEW ORDER: 2. Multiple Choice -->
-                <label><input type="checkbox" name="question_types" value="MCQ" checked> Multiple Choice (MCQ)</label>
-
-                <!-- ✅ NEW ORDER: 3. Fill-in-the-Blank -->
-                <label><input type="checkbox" name="question_types" value="Fill-in-the-Blank" checked> Fill-in-the-Blank</label>
-
-                <!-- ✅ NEW ORDER: 4. Short Answer -->
-                <label><input type="checkbox" name="question_types" value="Short Answer"> Short Answer</label>
-
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label for="bloom_level">Bloom's Taxonomy Level:</label>
-            <select id="bloom_level" name="bloom_level" required>
-                <option value="Remembering">Remembering</option>
-                <option value="Understanding">Understanding</option>
-                <option value="Applying">Applying</option>
-                <option value="Analyzing">Analyzing</option>
-                <option value="Evaluating">Evaluating</option>
-                <option value="Creating">Creating</option>
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label for="num_questions">Number of Questions:</label>
-            <input type="number" id="num_questions" name="num_questions" min="1" max="20" value="2" required>
+            <label>Configure Question Types:</label>
+            <table class="results-table" style="margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th>Include</th>
+                        <th>Type</th>
+                        <th>Count</th>
+                        <th>Bloom's Level</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align: center;"><input type="checkbox" name="qtype_tf" value="True/False" checked></td>
+                        <td>True/False</td>
+                        <td><input type="number" name="count_tf" min="1" max="10" value="2" style="width: 70px;"></td>
+                        <td>
+                            <select name="bloom_tf">
+                                <option value="Remembering">Remembering</option>
+                                <option value="Understanding">Understanding</option>
+                                <option value="Applying">Applying</option>
+                                <option value="Analyzing">Analyzing</option>
+                                <option value="Evaluating">Evaluating</option>
+                                <option value="Creating">Creating</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;"><input type="checkbox" name="qtype_mcq" value="MCQ" checked></td>
+                        <td>Multiple Choice (MCQ)</td>
+                        <td><input type="number" name="count_mcq" min="1" max="10" value="2" style="width: 70px;"></td>
+                        <td>
+                            <select name="bloom_mcq">
+                                <option value="Remembering">Remembering</option>
+                                <option value="Understanding">Understanding</option>
+                                <option value="Applying">Applying</option>
+                                <option value="Analyzing">Analyzing</option>
+                                <option value="Evaluating">Evaluating</option>
+                                <option value="Creating">Creating</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;"><input type="checkbox" name="qtype_fib" value="Fill-in-the-Blank" checked></td>
+                        <td>Fill-in-the-Blank</td>
+                        <td><input type="number" name="count_fib" min="1" max="10" value="2" style="width: 70px;"></td>
+                        <td>
+                            <select name="bloom_fib">
+                                <option value="Remembering">Remembering</option>
+                                <option value="Understanding">Understanding</option>
+                                <option value="Applying">Applying</option>
+                                <option value="Analyzing">Analyzing</option>
+                                <option value="Evaluating">Evaluating</option>
+                                <option value="Creating">Creating</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;"><input type="checkbox" name="qtype_sa" value="Short Answer"></td>
+                        <td>Short Answer</td>
+                        <td><input type="number" name="count_sa" min="1" max="10" value="1" style="width: 70px;"></td>
+                        <td>
+                            <select name="bloom_sa">
+                                <option value="Remembering">Remembering</option>
+                                <option value="Understanding">Understanding</option>
+                                <option value="Applying">Applying</option>
+                                <option value="Analyzing">Analyzing</option>
+                                <option value="Evaluating">Evaluating</option>
+                                <option value="Creating">Creating</option>
+                            </select>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
 
         <button type="submit">Generate Questions</button>

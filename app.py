@@ -39,6 +39,25 @@ import markdown
 import pdfplumber
 import qrcode
 from bleach import clean
+from thefuzz import fuzz
+import string
+
+def normalize_answer(ans):
+    if not ans:
+        return ""
+    # Lowercase and strip surrounding whitespace
+    ans = str(ans).lower().strip()
+    # Remove any stray punctuation (like periods at the end)
+    ans = ans.translate(str.maketrans('', '', string.punctuation))
+    
+    # Map common number words to digits
+    number_map = {
+        'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+        'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10'
+    }
+    
+    # Return the mapped digit, or the original word if it's not in the map
+    return number_map.get(ans, ans)
 
 # ==============================================================================
 # 1. APPLICATION SETUP AND CONFIGURATION
@@ -218,53 +237,29 @@ def extract_text_from_pdf(pdf_stream):
         app.logger.error(f"Error extracting text from PDF: {e}")
         return None
 
-def generate_questions(material, types, count, bloom_level):
+def generate_questions(material, configs, total_questions):
     start_time = time.time()
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    type_string = ", ".join(types)
+    
+    # REMOVED the generation_config that was causing the 400 Error
+    model = genai.GenerativeModel('gemini-2.5-flash') 
+    
+    breakdown_str = "\n".join([f"- {c['count']} {c['type']} question(s) targeting the Bloom's level: {c['bloom']}." for c in configs])
 
     prompt = f"""
-    Generate exactly {count} quiz questions based on the provided course material.
-    The questions should be of the following types: {type_string}.
-    Adhere to the Bloom's Taxonomy level of '{bloom_level}'.
+    Generate exactly {total_questions} quiz questions based on the provided course material.
+    You MUST adhere strictly to the following breakdown of question types and complexities:
+    
+    {breakdown_str}
 
-    CRITICAL: You MUST respond with only a valid JSON array of objects. Do not include any introductory text, explanations, or markdown formatting outside of the JSON block.
+    CRITICAL: You MUST respond with only a valid JSON array of objects. Do not include any introductory text, explanations, or markdown formatting (like ```json) outside of the JSON block.
 
     The JSON array should contain one object for each question. Each object must have the following keys:
-    - "type": (String) The type of question ("True/False", "MCQ", "Fill-in-the-Blank", or "Short Answer").
+    - "type": (String) The exact type of question ("True/False", "MCQ", "Fill-in-the-Blank", or "Short Answer").
     - "marks": (Integer) A suggested mark, from 1 to 5, based on complexity.
-    - "bloom_level": (String) The Bloom's level you targeted.
+    - "bloom_level": (String) The specific Bloom's level you targeted based on the requested breakdown.
     - "text": (String) The content of the question itself.
-    - "options": (Array of Strings) For "MCQ" questions, an array of four option strings. For other types, this should be an empty array [].
+    - "options": (Array of Strings) For "MCQ" questions, an array of four option strings. DO NOT include letter labels or prefixes (like A., B., a), b)) inside the option strings. Provide ONLY the answer text. For other types, this should be an empty array [].
     - "answer": (String) The correct answer. For MCQs, this should be the full text of the correct option.
-
-    JSON Structure Example:
-    [
-      {{
-        "type": "True/False",
-        "marks": 1,
-        "bloom_level": "Understanding",
-        "text": "Structured data is the most common type of data generated today.",
-        "options": [],
-        "answer": "False"
-      }},
-      {{
-        "type": "MCQ",
-        "marks": 3,
-        "bloom_level": "Remembering",
-        "text": "What is the primary characteristic of big data?",
-        "options": ["Small volume", "High velocity", "Simple structure", "Limited sources"],
-        "answer": "High velocity"
-      }},
-      {{
-        "type": "Fill-in-the-Blank",
-        "marks": 2,
-        "bloom_level": "Remembering",
-        "text": "The command to initialize a new Git repository is 'git ____'.",
-        "options": [],
-        "answer": "init"
-      }}
-    ]
 
     COURSE MATERIAL:
     "{material}"
@@ -276,40 +271,63 @@ def generate_questions(material, types, count, bloom_level):
         return response.text
     except Exception as e:
         app.logger.error(f"Gemini API Error: {str(e)}")
-        raise Exception("An error occurred while generating questions.")
+        raise Exception(f"An error occurred while generating questions. Error: {str(e)}")
 
 def parse_questions(questions_text):
-    """
-    Parses a JSON string from Gemini into a list of question dictionaries.
-    """
+    """Parses a JSON string from Gemini into a list of question dictionaries."""
     try:
+        # 1. Search for EITHER an array [...] OR an object {...}
         json_match = re.search(r'\[.*\]|\{.*\}', questions_text, re.DOTALL)
         if not json_match:
-            app.logger.error(f"Could not find valid JSON in AI response: {questions_text}")
+            app.logger.error("Could not find valid JSON in the AI response.")
             return []
 
         clean_json_str = json_match.group(0)
-        parsed_data = json.loads(clean_json_str)
 
+        # 2. CLEANUP: Strip out trailing commas before closing brackets to prevent "Expecting property name" errors
+        clean_json_str = re.sub(r',\s*([\]}])', r'\1', clean_json_str)
+
+        # 3. Parse the JSON (strict=False ignores bad hidden characters)
+        parsed_data = json.loads(clean_json_str, strict=False)
+
+        # 4. Handle the case where Gemini wraps the array in a dictionary (e.g. {"questions": [...]})
+        if isinstance(parsed_data, dict):
+            # Hunt for the list inside the dictionary
+            found_list = False
+            for key, value in parsed_data.items():
+                if isinstance(value, list):
+                    parsed_data = value
+                    found_list = True
+                    break
+            # If it's just a single question object, wrap it in a list
+            if not found_list:
+                parsed_data = [parsed_data]
+
+        # 5. Safely extract the questions
         questions_for_app = []
         for q in parsed_data:
+            # Skip invalid entries if Gemini hallucinated strings instead of objects
+            if not isinstance(q, dict):
+                continue 
+
+            options_data = q.get('options', [])
+            if not isinstance(options_data, list):
+                options_data = []
+
             new_q = {
-                'type': q.get('type'),
-                'marks': q.get('marks'),
-                'bloom_level': q.get('bloom_level'),
-                'text': q.get('text'),
-                'answer': q.get('answer'),
-                'options': '\n'.join(q.get('options', []))
+                'type': q.get('type', 'Unknown'),
+                'marks': q.get('marks', 1),
+                'bloom_level': q.get('bloom_level', 'Understanding'),
+                'text': q.get('text', 'Error: AI generated blank question.'),
+                'answer': q.get('answer', ''),
+                'options': '\n'.join([str(opt) for opt in options_data])
             }
             questions_for_app.append(new_q)
 
         return questions_for_app
 
-    except json.JSONDecodeError as e:
-        app.logger.error(f"JSON Parsing Error: {e}\nRaw Response was:\n{questions_text}")
-        return []
     except Exception as e:
-        app.logger.error(f"An unexpected error occurred in parse_questions: {e}")
+        app.logger.error(f"An error occurred in parse_questions: {e}\nRaw Response:\n{questions_text}")
         return []
 
 def send_reset_email(user):
@@ -476,34 +494,48 @@ def create_quiz():
             flash("No course material provided. Please paste text or upload a PDF.", 'danger')
             return redirect(url_for('index'))
 
-        if not form_data.getlist('question_types'):
-            flash("Please select at least one question type.", 'danger')
+        # --- NEW LOGIC: Parse the configuration table ---
+        configs = []
+        total_questions = 0
+
+        # Map checkbox names to their specific input field names
+        types_map = {
+            'qtype_tf': ('True/False', 'count_tf', 'bloom_tf'),
+            'qtype_mcq': ('MCQ', 'count_mcq', 'bloom_mcq'),
+            'qtype_fib': ('Fill-in-the-Blank', 'count_fib', 'bloom_fib'),
+            'qtype_sa': ('Short Answer', 'count_sa', 'bloom_sa')
+        }
+
+        for cb_name, (display_name, count_name, bloom_name) in types_map.items():
+            if form_data.get(cb_name): 
+                try:
+                    count = int(form_data.get(count_name, 0))
+                except ValueError:
+                    count = 0
+                
+                if count > 0:
+                    bloom = form_data.get(bloom_name)
+                    configs.append({'type': display_name, 'count': count, 'bloom': bloom})
+                    total_questions += count
+
+        # This is the NEW validation that replaces the old one!
+        if total_questions == 0:
+            flash("Please select at least one question type and ensure its count is greater than 0.", 'danger')
             return redirect(url_for('index'))
 
         sanitized_course_material = clean(course_material)
-        question_types = form_data.getlist('question_types')
-        num_questions = int(form_data.get('num_questions', 2))
-        bloom_level = form_data.get('bloom_level')
-
-        app.logger.info(f"User '{current_user.username}' is generating {num_questions} questions.")
-
         try:
-            questions_text = generate_questions(sanitized_course_material, question_types, num_questions, bloom_level)
+            # Pass the structured configs and total sum to the new function
+            questions_text = generate_questions(sanitized_course_material, configs, total_questions)
         except Exception as e:
             flash(str(e), 'danger')
             return redirect(url_for('index'))
 
-        json_match = re.search(r'\[.*\]|\{.*\}', questions_text, re.DOTALL)
-        if json_match:
-            clean_json_str = json_match.group(0)
-            questions_list_for_display = parse_questions(clean_json_str)
-        else:
-            questions_list_for_display = []
-            app.logger.error(f"Could not find JSON in Gemini response for user '{current_user.username}'.")
+        # --- NEW: Cleaner parsing block ---
+        questions_list_for_display = parse_questions(questions_text)
 
-        # Handle cases where parsing fails or returns nothing
         if not questions_list_for_display:
-            flash('The AI was unable to generate questions from the provided material. Please try again or rephrase your input.', 'danger')
+            flash('The AI was unable to generate valid questions. Please try again or simplify your request.', 'danger')
             return redirect(url_for('index'))
 
         question_type_order = ["True/False", "MCQ", "Fill-in-the-Blank", "Short Answer"]
@@ -1034,7 +1066,12 @@ def submit_quiz(public_id):
             questions_list.append(q_data)
 
         # Create a quick-lookup dict by question ID
-        questions_dict = {q['id']: q for q in questions_list}
+        # --- NEW: Sort the questions exactly how they appear on the quiz page ---
+        question_type_order = ["True/False", "MCQ", "Fill-in-the-Blank", "Short Answer"]
+        sorted_questions = sorted(
+            questions_list,
+            key=lambda q: question_type_order.index(q.get('question_type', '').strip()) if q.get('question_type', '').strip() in question_type_order else len(question_type_order)
+        )
 
         score = 0
         total_score = 0
@@ -1044,7 +1081,10 @@ def submit_quiz(public_id):
         student_name = request.form.get('student_name', 'Anonymous')
 
         # --- Grade the submission ---
-        for q_id, q_data in questions_dict.items():
+        # Loop through the sorted list instead of the scrambled dictionary
+        for q_data in sorted_questions:
+            q_id = q_data['id']  # Extract the ID from the sorted data
+            
             question_marks = q_data.get('marks', 0)
             total_score += question_marks
 
@@ -1053,20 +1093,41 @@ def submit_quiz(public_id):
 
             is_correct = False
             if q_data['question_type'] in ['MCQ', 'True/False', 'Fill-in-the-Blank']:
-                is_correct = student_answer_text.strip().lower() == correct_answer_text.lower()
+                
+                # 1. Normalize both answers first (handles "five" vs "5")
+                norm_student = normalize_answer(student_answer_text)
+                norm_correct = normalize_answer(correct_answer_text)
+                
+                # 2. Check for exact match (fastest)
+                if norm_student == norm_correct:
+                    is_correct = True
+                else:
+                    # 3. If not exact, check fuzzy match (handles typos like "prediciton")
+                    # fuzz.ratio returns a score from 0 to 100
+                    similarity_score = fuzz.ratio(norm_student, norm_correct)
+                    
+                    # You can tweak this threshold. 85 is usually safe for catching typos 
+                    # without accepting entirely wrong words.
+                    if similarity_score >= 85:
+                        is_correct = True
+
             elif q_data['question_type'] == 'Short Answer':
                 if student_answer_text != 'Not Answered':
                     is_correct = grade_short_answer_with_gemini(correct_answer_text, student_answer_text)
 
             if is_correct:
                 score += question_marks
+                marks_earned = question_marks  # <-- Make sure this line exists
+            else:
+                marks_earned = 0               # <-- Make sure this line exists
 
             # For display on the results page
             results_for_template.append({
                 'question': q_data,
                 'student_answer': student_answer_text,
                 'correct_answer': correct_answer_text,
-                'is_correct': is_correct
+                'is_correct': is_correct,
+                'marks_earned': marks_earned   # <-- Check the spelling here!
             })
 
             # For storing in the 'student_answers' subcollection
