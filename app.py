@@ -64,7 +64,8 @@ def normalize_answer(ans):
 # ==============================================================================
 
 # Load environment variables from .env file
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -363,17 +364,23 @@ def grade_short_answer_with_gemini(correct_answer, student_answer, max_marks):
         duration = time.time() - start_time
         app.logger.info(f"Gemini API call for short answer grading took {duration:.2f}s.")
         
-        # Safely extract the JSON object in case Gemini includes markdown
+        # Safely extract the JSON object
         json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
         if json_match:
-            grade_data = json.loads(json_match.group(0))
+            clean_json_str = json_match.group(0)
+            # 1. Strip trailing commas just in case Gemini gets sloppy
+            clean_json_str = re.sub(r',\s*([\]}])', r'\1', clean_json_str)
+            
+            # 2. strict=False ignores bad hidden characters (newlines, tabs)
+            grade_data = json.loads(clean_json_str, strict=False)
+            
             awarded = int(grade_data.get('awarded_marks', 0))
-            # Ensure the AI doesn't accidentally award negative points or more than the max
             return max(0, min(awarded, max_marks))
             
         return 0
 
     except Exception as e:
+        # We will log the exact reason it crashed so we don't have to guess next time!
         app.logger.error(f"Gemini API grading error: {str(e)}")
         return 0
 
