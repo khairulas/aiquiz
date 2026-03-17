@@ -341,48 +341,72 @@ def send_reset_email(user):
         app.logger.error(f"Failed to send email: {e}")
         raise
 
-def grade_short_answer_with_gemini(correct_answer, student_answer, max_marks):
-    """Sends answers to Gemini for partial-credit grading and parses the JSON response."""
+def batch_grade_short_answers(questions_data):
+    """
+    Sends a list of short answers to Gemini in a single API call for batch grading.
+    Expects questions_data as: [{'id': 'q1', 'correct': '...', 'student': '...', 'max_marks': 3}, ...]
+    Returns a dictionary mapping question IDs to awarded marks: {'q1': 2, 'q2': 0, ...}
+    """
+    if not questions_data:
+        return {}
+
     start_time = time.time()
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
-        prompt = f"""
-        You are an expert examiner grading a short-answer question.
-        The maximum possible marks for this question is {max_marks}.
-        Evaluate the student's answer against the answer key.
-        - Award full marks ({max_marks}) if the answer is complete and accurate.
-        - Award partial marks (e.g., 1 or 2) if the answer is incomplete but contains some correct elements.
+        
+        # 1. Build the prompt dynamically based on how many questions there are
+        prompt = """
+        You are an expert examiner grading multiple short-answer questions.
+        For each question, evaluate the student's answer against the answer key.
+        - Award full marks if the answer is complete and accurate.
+        - Award partial marks if the answer is incomplete but contains some correct elements.
         - Award 0 marks if the answer is completely wrong or irrelevant.
-
-        **Answer Key:** "{correct_answer}"
-        **Student's Answer:** "{student_answer}"
-
-        Respond ONLY in JSON format with one key: "awarded_marks" (integer).
+        
+        Here are the questions to grade:
+        """
+        
+        for q in questions_data:
+            prompt += f"""
+            ---
+            Question ID: {q['id']}
+            Maximum Marks: {q['max_marks']}
+            Answer Key: "{q['correct']}"
+            Student's Answer: "{q['student']}"
+            """
+            
+        prompt += """
+        ---
+        CRITICAL INSTRUCTION: Respond ONLY in a valid JSON format. Do not include markdown formatting. 
+        The JSON must be a single dictionary where the keys are the "Question ID" and the values are the integer awarded marks.
+        Example format: {"q123": 2, "q456": 0}
         """
 
+        # 2. Call the API
         response = model.generate_content(prompt)
         duration = time.time() - start_time
-        app.logger.info(f"Gemini API call for short answer grading took {duration:.2f}s.")
+        app.logger.info(f"Gemini API BATCH grading ({len(questions_data)} items) took {duration:.2f}s.")
         
-        # Safely extract the JSON object
+        # 3. Clean and parse the JSON
         json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
         if json_match:
             clean_json_str = json_match.group(0)
-            # 1. Strip trailing commas just in case Gemini gets sloppy
             clean_json_str = re.sub(r',\s*([\]}])', r'\1', clean_json_str)
-            
-            # 2. strict=False ignores bad hidden characters (newlines, tabs)
             grade_data = json.loads(clean_json_str, strict=False)
             
-            awarded = int(grade_data.get('awarded_marks', 0))
-            return max(0, min(awarded, max_marks))
+            # 4. Enforce max_marks bounds just in case the AI hallucinates a high score
+            final_grades = {}
+            for q in questions_data:
+                q_id = q['id']
+                awarded = int(grade_data.get(q_id, 0))
+                final_grades[q_id] = max(0, min(awarded, q['max_marks']))
+                
+            return final_grades
             
-        return 0
+        return {}
 
     except Exception as e:
-        # We will log the exact reason it crashed so we don't have to guess next time!
-        app.logger.error(f"Gemini API grading error: {str(e)}")
-        return 0
+        app.logger.error(f"Gemini API batch grading error: {str(e)}")
+        return {}
 
 def create_overall_analysis_prompt(summary_data):
     """Creates a prompt for Gemini to analyze a whole class's performance."""
@@ -1094,17 +1118,35 @@ def submit_quiz(public_id):
         total_score = 0
         results_for_template = []
         student_answers_for_db = []
-
         student_name = request.form.get('student_name', 'Anonymous')
 
-        # --- Grade the submission ---
-        # Loop through the sorted list instead of the scrambled dictionary
+        # --- NEW BATCH GRADING LOGIC ---
+        
+        # 1. First Pass: Collect all short answers that need AI grading
+        short_answers_to_grade = []
         for q_data in sorted_questions:
-            q_id = q_data['id']  # Extract the ID from the sorted data
-            
+            q_id = q_data['id']
             question_marks = q_data.get('marks', 0)
-            total_score += question_marks
+            total_score += question_marks # Calculate total possible score
+            
+            student_answer_text = request.form.get(f'question_{q_id}', 'Not Answered')
+            
+            if q_data['question_type'] == 'Short Answer' and student_answer_text != 'Not Answered':
+                short_answers_to_grade.append({
+                    'id': q_id,
+                    'correct': q_data.get('answer', '').strip(),
+                    'student': student_answer_text,
+                    'max_marks': question_marks
+                })
 
+        # 2. Make the SINGLE API call for all short answers at once
+        batch_grades = batch_grade_short_answers(short_answers_to_grade)
+
+        # 3. Second Pass: Process all grades and build the final results
+        for q_data in sorted_questions:
+            q_id = q_data['id']
+            question_marks = q_data.get('marks', 0)
+            
             student_answer_text = request.form.get(f'question_{q_id}', 'Not Answered')
             correct_answer_text = q_data.get('answer', '').strip()
 
@@ -1126,10 +1168,8 @@ def submit_quiz(public_id):
 
             elif q_data['question_type'] == 'Short Answer':
                 if student_answer_text != 'Not Answered':
-                    # NEW: Pass the question_marks to Gemini and get an integer back
-                    marks_earned = grade_short_answer_with_gemini(correct_answer_text, student_answer_text, question_marks)
-                    
-                    # Treat anything above 0 as "correct" so it gets the green checkmark
+                    # Retrieve the grade safely from our batch dictionary
+                    marks_earned = batch_grades.get(q_id, 0)
                     is_correct = marks_earned > 0 
 
             # Add the specifically earned marks to the total score
