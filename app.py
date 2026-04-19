@@ -72,11 +72,18 @@ app = Flask(__name__)
 
 # --- Timezone Configuration ---
 MYT = pytz.timezone('Asia/Kuala_Lumpur')
+# --- Helper to get the real IP behind PythonAnywhere's proxy ---
+def get_real_ip():
+    if request.headers.getlist("X-Forwarded-For"):
+        # Get the first IP in the list (the actual client)
+        return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
+    return request.remote_addr
 
+# --- Updated Limiter Configuration ---
 limiter = Limiter(
-    get_remote_address,
+    key_func=get_real_ip,
     app=app,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["9000 per day", "900 per minute"] # Drastically increased for classroom sizes
 )
 
 MAX_FILE_SIZE_MB = 10  # Set your limit here (e.g., 5 MB)
