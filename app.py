@@ -73,10 +73,18 @@ app = Flask(__name__)
 # --- Timezone Configuration ---
 MYT = pytz.timezone('Asia/Kuala_Lumpur')
 
+# --- Helper to get the real IP behind PythonAnywhere's proxy ---
+def get_real_ip():
+    if request.headers.getlist("X-Forwarded-For"):
+        # Get the first IP in the list (the actual client)
+        return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
+    return request.remote_addr
+
+# --- Updated Limiter Configuration ---
 limiter = Limiter(
-    get_remote_address,
+    key_func=get_real_ip,
     app=app,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["9000 per day", "900 per minute"] # Drastically increased for classroom sizes
 )
 
 MAX_FILE_SIZE_MB = 10  # Set your limit here (e.g., 5 MB)
@@ -1076,7 +1084,9 @@ def take_quiz(public_id):
         flash("An error occurred while loading the quiz.", 'danger')
         return redirect(url_for('index'))
 
+# --- This is the critical route for handling quiz submissions and grading ---
 @app.route('/quiz/<public_id>/submit', methods=['POST'])
+@limiter.limit("10 per minute")
 def submit_quiz(public_id):
     try:
         quiz_ref = db.collection('quizzes').document(public_id)
@@ -1087,6 +1097,13 @@ def submit_quiz(public_id):
 
         quiz_data = quiz_doc.to_dict()
         now_utc = datetime.now(pytz.utc)
+
+        # --- Server-side name validation ---
+        student_name = (request.form.get('student_name') or '').strip()
+        if not student_name:
+            app.logger.warning(f"Empty student_name submission attempt for quiz '{public_id}'.")
+            message = "You must enter your name before submitting the quiz."
+            return render_template('quiz_unavailable.html', quiz=quiz_data, message=message), 400
 
         # --- Check for Late Submissions ---
         closes_at = quiz_data.get('closes_at')
@@ -1106,8 +1123,6 @@ def submit_quiz(public_id):
             q_data['id'] = q_doc.id
             questions_list.append(q_data)
 
-        # Create a quick-lookup dict by question ID
-        # --- NEW: Sort the questions exactly how they appear on the quiz page ---
         question_type_order = ["True/False", "MCQ", "Fill-in-the-Blank", "Short Answer"]
         sorted_questions = sorted(
             questions_list,
@@ -1116,21 +1131,18 @@ def submit_quiz(public_id):
 
         score = 0
         total_score = 0
-        results_for_template = []
+        results_for_storage = []  # Full grading details to save on the attempt doc
         student_answers_for_db = []
-        student_name = request.form.get('student_name', 'Anonymous')
 
-        # --- NEW BATCH GRADING LOGIC ---
-        
-        # 1. First Pass: Collect all short answers that need AI grading
+        # --- 1. First Pass: Collect short answers for batch grading ---
         short_answers_to_grade = []
         for q_data in sorted_questions:
             q_id = q_data['id']
             question_marks = q_data.get('marks', 0)
-            total_score += question_marks # Calculate total possible score
-            
+            total_score += question_marks
+
             student_answer_text = request.form.get(f'question_{q_id}', 'Not Answered')
-            
+
             if q_data['question_type'] == 'Short Answer' and student_answer_text != 'Not Answered':
                 short_answers_to_grade.append({
                     'id': q_id,
@@ -1139,14 +1151,14 @@ def submit_quiz(public_id):
                     'max_marks': question_marks
                 })
 
-        # 2. Make the SINGLE API call for all short answers at once
+        # --- 2. Single Gemini batch call ---
         batch_grades = batch_grade_short_answers(short_answers_to_grade)
 
-        # 3. Second Pass: Process all grades and build the final results
+        # --- 3. Second Pass: Build results ---
         for q_data in sorted_questions:
             q_id = q_data['id']
             question_marks = q_data.get('marks', 0)
-            
+
             student_answer_text = request.form.get(f'question_{q_id}', 'Not Answered')
             correct_answer_text = q_data.get('answer', '').strip()
 
@@ -1156,7 +1168,7 @@ def submit_quiz(public_id):
             if q_data['question_type'] in ['MCQ', 'True/False', 'Fill-in-the-Blank']:
                 norm_student = normalize_answer(student_answer_text)
                 norm_correct = normalize_answer(correct_answer_text)
-                
+
                 if norm_student == norm_correct:
                     is_correct = True
                     marks_earned = question_marks
@@ -1168,23 +1180,23 @@ def submit_quiz(public_id):
 
             elif q_data['question_type'] == 'Short Answer':
                 if student_answer_text != 'Not Answered':
-                    # Retrieve the grade safely from our batch dictionary
                     marks_earned = batch_grades.get(q_id, 0)
-                    is_correct = marks_earned > 0 
+                    is_correct = marks_earned == question_marks  # Full credit = correct
 
-            # Add the specifically earned marks to the total score
             score += marks_earned
 
-            # For display on the results page
-            results_for_template.append({
-                'question': q_data,
+            # Save FULL detail for re-rendering on GET
+            results_for_storage.append({
+                'question_id': q_id,
+                'question_content': q_data.get('content'),
+                'question_type': q_data.get('question_type'),
+                'question_marks': question_marks,
                 'student_answer': student_answer_text,
                 'correct_answer': correct_answer_text,
                 'is_correct': is_correct,
                 'marks_earned': marks_earned
             })
-            
-            # For storing in the 'student_answers' subcollection
+
             student_answers_for_db.append({
                 'question_id': q_id,
                 'question_content': q_data.get('content'),
@@ -1195,8 +1207,6 @@ def submit_quiz(public_id):
         percentage = round((score / total_score) * 100, 2) if total_score > 0 else 0
 
         # --- Save the attempt to Firestore ---
-
-        # 1. Create the main QuizAttempt document
         new_attempt_data = {
             'quiz_id': public_id,
             'quiz_title': quiz_data.get('title'),
@@ -1204,11 +1214,12 @@ def submit_quiz(public_id):
             'score': score,
             'total_score': total_score,
             'percentage': percentage,
-            'timestamp': firestore.SERVER_TIMESTAMP
+            'timestamp': firestore.SERVER_TIMESTAMP,
+            'results_detail': results_for_storage  # <-- NEW: full grading saved here
         }
         attempt_ref = db.collection('quiz_attempts').add(new_attempt_data)[1]
 
-        # 2. Batch write all student answers to a subcollection
+        # Save student_answers subcollection (used by overall_analysis)
         batch = db.batch()
         answers_collection_ref = attempt_ref.collection('student_answers')
         for answer_data in student_answers_for_db:
@@ -1217,16 +1228,61 @@ def submit_quiz(public_id):
         batch.commit()
 
         app.logger.info(f"Quiz '{public_id}' submitted by '{student_name}'. Score: {score}/{total_score}.")
-        return render_template('quiz_results.html',
-                               score=score,
-                               total_score=total_score,
-                               percentage=percentage,
-                               quiz=quiz_data,
-                               results=results_for_template)
+
+        # --- REDIRECT to GET route (this is the key fix) ---
+        return redirect(url_for('view_attempt_result', public_id=public_id, attempt_id=attempt_ref.id))
+
     except Exception as e:
         app.logger.error(f"Error submitting quiz {public_id}: {str(e)}")
         return render_template('error.html', message=f"An error occurred while submitting your quiz. Error: {str(e)}")
 
+# --- Route to view the result of a specific attempt ---
+@app.route('/quiz/<public_id>/result/<attempt_id>', methods=['GET'])
+def view_attempt_result(public_id, attempt_id):
+    try:
+        quiz_ref = db.collection('quizzes').document(public_id)
+        quiz_doc = quiz_ref.get()
+        if not quiz_doc.exists:
+            return "Quiz not found", 404
+        quiz_data = quiz_doc.to_dict()
+
+        attempt_ref = db.collection('quiz_attempts').document(attempt_id)
+        attempt_doc = attempt_ref.get()
+        if not attempt_doc.exists:
+            return "Attempt not found", 404
+        attempt_data = attempt_doc.to_dict()
+
+        # Sanity check: this attempt belongs to this quiz
+        if attempt_data.get('quiz_id') != public_id:
+            return "Attempt does not belong to this quiz", 404
+
+        # Reshape stored results into the format quiz_results.html expects
+        results_for_template = []
+        for r in attempt_data.get('results_detail', []):
+            results_for_template.append({
+                'question': {
+                    'content': r.get('question_content'),
+                    'marks': r.get('question_marks'),
+                    'question_type': r.get('question_type')
+                },
+                'student_answer': r.get('student_answer'),
+                'correct_answer': r.get('correct_answer'),
+                'is_correct': r.get('is_correct'),
+                'marks_earned': r.get('marks_earned')
+            })
+
+        return render_template(
+            'quiz_results.html',
+            score=attempt_data.get('score'),
+            total_score=attempt_data.get('total_score'),
+            percentage=attempt_data.get('percentage'),
+            quiz=quiz_data,
+            results=results_for_template
+        )
+    except Exception as e:
+        app.logger.error(f"Error loading attempt result {attempt_id}: {str(e)}")
+        return render_template('error.html', message=f"An error occurred. Error: {str(e)}")
+    
 @app.route('/quiz/<public_id>/attempts')
 @login_required
 def view_attempts(public_id):

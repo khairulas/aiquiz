@@ -85,42 +85,43 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // FIX: Use default(None) to prevent syntax errors if variables are missing
+    const quizForm = document.getElementById('quiz-form');
+    
+    // Lock submit button on submit (works regardless of timer)
+    if (quizForm) {
+        const submitBtn = quizForm.querySelector('button[type="submit"]');
+        quizForm.addEventListener('submit', function() {
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+            }
+        });
+    }
+
+    // Timer logic (only runs if time limit set)
     const timeLimitMinutes = {{ time_limit_minutes|default(None)|tojson }};
     const closesAtISO = {{ closes_at_iso|default(None)|tojson }};
     const timerDisplay = document.getElementById('countdown-timer');
-    const quizForm = document.getElementById('quiz-form');
 
-    // The rest of your script logic remains the same...
     if (!timeLimitMinutes || !timerDisplay || !quizForm) {
-        return; // No timer for this quiz
+        return;
     }
 
-    // --- Determine the actual end time ---
     const now = new Date();
-    // 1. End time based on the time limit
     const endTimeFromLimit = new Date(now.getTime() + timeLimitMinutes * 60000);
-    
-    // 2. End time based on the hard close date of the quiz
     const endTimeFromSchedule = closesAtISO ? new Date(closesAtISO) : null;
 
-    // The final deadline is the EARLIER of the two end times
     let finalEndTime = endTimeFromLimit;
     if (endTimeFromSchedule && endTimeFromSchedule < endTimeFromLimit) {
         finalEndTime = endTimeFromSchedule;
     }
-    
-    // --- Countdown Logic ---
+
     const timerInterval = setInterval(function() {
         const remaining = finalEndTime - new Date();
 
         if (remaining <= 0) {
             clearInterval(timerInterval);
-
-            // Show a non-blocking message that the quiz is submitting
             timerDisplay.innerHTML = '<strong style="color: red;">Time is up! Submitting...</strong>';
-            
-            // Submit the form with all answer fields enabled
             quizForm.submit();
             return;
         }
@@ -131,9 +132,11 @@ document.addEventListener('DOMContentLoaded', function() {
         timerDisplay.textContent = 
             minutes.toString().padStart(2, '0') + ":" + 
             seconds.toString().padStart(2, '0');
-
     }, 1000);
 });
+</script>
+
+{% endblock %}
 </script>
 
 {% endblock %}
