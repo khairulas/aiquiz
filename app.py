@@ -79,16 +79,6 @@ def get_real_ip():
         return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
     return request.remote_addr
 
-<<<<<<< HEAD
-# --- Helper to get the real IP behind PythonAnywhere's proxy ---
-def get_real_ip():
-    if request.headers.getlist("X-Forwarded-For"):
-        # Get the first IP in the list (the actual client)
-        return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
-    return request.remote_addr
-
-=======
->>>>>>> 8e11bc735bd486a4179a236fdd400a7d6479c171
 # --- Updated Limiter Configuration ---
 limiter = Limiter(
     key_func=get_real_ip,
