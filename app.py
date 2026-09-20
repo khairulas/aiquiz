@@ -12,6 +12,11 @@ import os
 import time
 #from datetime import datetime, timezone
 from collections import defaultdict
+import re
+import csv
+from functools import wraps
+from flask_session import Session
+from authlib.integrations.flask_client import OAuth
 
 
 # --- Standard Library Imports First ---
@@ -107,6 +112,35 @@ logging.basicConfig(
 
 # --- Load Configurations ---
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'a_default_secret_key_for_development')
+# --- Server-side sessions ---
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(BASE_DIR, '.flask_session')
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+Session(app)
+
+# --- UiTM identity configuration ---
+UITM_DOMAIN = os.getenv('UITM_EMAIL_DOMAIN', 'uitm.edu.my')
+app.config['UITM_DOMAIN'] = UITM_DOMAIN
+MATRIC_PATTERN = re.compile(r'^\d{10}$')
+ALLOWED_LECTURERS = [
+    e.strip().lower()
+    for e in os.getenv('ALLOWED_LECTURER_EMAILS', '').split(',')
+    if e.strip()
+]
+
+
+def classify_email(email):
+    """Return (role, matric_no) for a UiTM address, or (None, None) if not UiTM."""
+    email = (email or '').lower().strip()
+    if not email.endswith('@' + UITM_DOMAIN):
+        return None, None
+    local = email.split('@')[0]
+    if MATRIC_PATTERN.match(local):
+        return 'student', local
+    return 'lecturer', None
 
 # Database Configuration
 # --- Firebase Admin SDK Initialization ---
@@ -164,6 +198,16 @@ if GEMINI_API_KEY:
 # ==============================================================================
 
 csrf = CSRFProtect(app)
+
+oauth = OAuth(app)
+google_oauth = oauth.register(
+    name='google',
+    client_id=os.getenv('GOOGLE_OAUTH_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_OAUTH_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
 mail = Mail(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -176,17 +220,38 @@ login_manager.login_view = 'login'
 # This class is now a simple "Plain Old Python Object"
 # It's not tied to a database, we just use it to hold data
 class User(UserMixin):
-    def __init__(self, id, username, email, password_hash):
+    def __init__(self, id, email, role='lecturer', username=None,
+                 password_hash=None, full_name=None, matric_no=None):
         self.id = id
-        self.username = username
         self.email = email
+        self.role = role or 'lecturer'
+        self.username = username
         self.password_hash = password_hash
+        self.full_name = full_name
+        self.matric_no = matric_no
 
-    # We can keep these helper methods!
+    @property
+    def is_student(self):
+        return self.role == 'student'
+
+    @property
+    def is_lecturer(self):
+        return self.role == 'lecturer'
+
+    @property
+    def display_name(self):
+        return self.full_name or self.username or self.email
+
+    @property
+    def has_password(self):
+        return bool(self.password_hash)
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
     def check_password(self, password):
+        if not self.password_hash:
+            return False
         return check_password_hash(self.password_hash, password)
 
     def get_reset_token(self, expires_sec=3600):
@@ -213,17 +278,43 @@ def load_user(user_id):
         doc = db.collection('users').document(user_id).get()
         if not doc.exists:
             return None
-
         data = doc.to_dict()
         return User(
             id=doc.id,
-            username=data.get('username'),
             email=data.get('email'),
-            password_hash=data.get('password_hash')
+            role=data.get('role', 'lecturer'),   # legacy docs → lecturer
+            username=data.get('username'),
+            password_hash=data.get('password_hash'),
+            full_name=data.get('full_name'),
+            matric_no=data.get('matric_no')
         )
     except Exception as e:
         app.logger.error(f"Error loading user {user_id}: {e}")
         return None
+
+def lecturer_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login', next=request.url))
+        if not current_user.is_lecturer:
+            flash("That page is for lecturers.", 'danger')
+            return redirect(url_for('student_dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def student_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            session['post_login_redirect'] = request.url
+            return redirect(url_for('login'))
+        if not current_user.is_student:
+            flash("That page is for students.", 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
 
 # ==============================================================================
 # 5. HELPER FUNCTIONS
@@ -675,63 +766,10 @@ def save_questions():
 # --- Authentication and User Management Routes ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        email = request.form.get('email')
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-
-        if not request.form.get('agree_terms'):
-            flash('You must agree to the Terms of Use and Privacy Policy to create an account.', 'danger')
-            return redirect(url_for('register'))
-
-        # Check if username exists
-        users_ref = db.collection('users').where('username', '==', username).limit(1)
-
-        # ✅ FIX 1: Convert the stream to a list before checking length
-        if len(list(users_ref.stream())) > 0:
-            flash('Username already exists. Please choose a different one.', 'danger')
-            return redirect(url_for('register'))
-
-        # Check if email exists
-        users_ref_email = db.collection('users').where('email', '==', email).limit(1)
-
-        # ✅ FIX 2: Convert the stream to a list before checking length
-        if len(list(users_ref_email.stream())) > 0:
-            flash('Email address is already registered.', 'danger')
-            return redirect(url_for('register'))
-
-        if password != confirm_password:
-            flash('Passwords do not match. Please try again.', 'danger')
-            return redirect(url_for('register'))
-
-        if len(password) < 8:
-            flash('Password must be at least 8 characters long.', 'danger')
-            return redirect(url_for('register'))
-
-        # Create a new user object (but not from a model)
-        new_user_data = {
-            'username': username,
-            'email': email,
-            'password_hash': generate_password_hash(password, method='pbkdf2:sha256')
-        }
-
-        # Add the new user to the 'users' collection
-        # Firestore will auto-generate an ID
-        doc_ref = db.collection('users').add(new_user_data)
-
-        app.logger.info(f"New user registered: '{username}'")
-        flash('Account created successfully! You are now logged in.', 'success')
-
-        # Manually create a User object to log them in
-        # doc_ref[1].id is the ID of the new document
-        user_obj = User(id=doc_ref[1].id, **new_user_data)
-        login_user(user_obj)
-        return redirect(url_for('index'))
-
-    csrf_token = generate_csrf()
-    return render_template('register.html', csrf_token=csrf_token)
-
+    flash("Registration is now through your UiTM Google account. "
+          "Please use the sign-in button.", 'info')
+    return redirect(url_for('login'))
+    
 ## --- Login Route ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -768,6 +806,90 @@ def login():
 
     csrf_token = generate_csrf()
     return render_template('login.html', csrf_token=csrf_token)
+
+@app.route('/login/google')
+def login_google():
+    next_url = request.args.get('next')
+    if next_url:
+        session['post_login_redirect'] = next_url
+    if app.debug:
+        redirect_uri = url_for('google_auth_callback', _external=True)
+    else:
+        redirect_uri = url_for('google_auth_callback', _external=True, _scheme='https')
+    return google_oauth.authorize_redirect(redirect_uri, hd=UITM_DOMAIN)
+
+@app.route('/auth/google/callback')
+def google_auth_callback():
+    try:
+        token = google_oauth.authorize_access_token()
+    except Exception as e:
+        app.logger.warning(f"OAuth exchange failed: {e}")
+        flash("Sign-in failed. Please try again.", 'danger')
+        return redirect(url_for('login'))
+
+    userinfo = token.get('userinfo') or {}
+    email = (userinfo.get('email') or '').lower().strip()
+    verified = userinfo.get('email_verified', False)
+    full_name = (userinfo.get('name') or '').strip()
+
+    if not verified:
+        flash("Your Google account email is not verified.", 'danger')
+        return redirect(url_for('login'))
+
+    role, matric_no = classify_email(email)
+    if role is None:
+        app.logger.warning(f"Rejected non-UiTM sign-in: {email}")
+        flash(f"Please sign in with your UiTM email (@{UITM_DOMAIN}).", 'danger')
+        return redirect(url_for('login'))
+
+    matches = list(db.collection('users').where('email', '==', email).stream())
+    if len(matches) > 1:
+        app.logger.error(f"DUPLICATE EMAIL in users: {email} ({[m.id for m in matches]})")
+    existing = matches[:1]
+
+    if role == 'lecturer' and not existing and email not in ALLOWED_LECTURERS:
+        app.logger.warning(f"Unapproved staff sign-in attempt: {email}")
+        flash("Your staff account is not approved for this tool yet. "
+              "Please contact the administrator.", 'warning')
+        return redirect(url_for('login'))
+
+    if existing:
+        doc = existing[0]
+        data = doc.to_dict()
+        update = {'last_login': firestore.SERVER_TIMESTAMP}
+        if full_name and not data.get('full_name'):
+            update['full_name'] = full_name
+        if not data.get('role'):
+            update['role'] = role
+        if role == 'student' and not data.get('matric_no'):
+            update['matric_no'] = matric_no
+        db.collection('users').document(doc.id).update(update)
+
+        user_obj = User(
+            id=doc.id, email=email, role=data.get('role') or role,
+            username=data.get('username'), password_hash=data.get('password_hash'),
+            full_name=full_name or data.get('full_name'),
+            matric_no=data.get('matric_no') or matric_no
+        )
+    else:
+        new_data = {
+            'role': role, 'email': email, 'full_name': full_name,
+            'matric_no': matric_no, 'auth_provider': 'google',
+            'created_at': firestore.SERVER_TIMESTAMP,
+            'last_login': firestore.SERVER_TIMESTAMP
+        }
+        doc_ref = db.collection('users').add(new_data)[1]
+        user_obj = User(id=doc_ref.id, email=email, role=role,
+                        full_name=full_name, matric_no=matric_no)
+        app.logger.info(f"New {role} provisioned: {email}")
+
+    login_user(user_obj)
+    app.logger.info(f"{role.capitalize()} '{email}' logged in via Google.")
+
+    dest = session.pop('post_login_redirect', None)
+    if dest:
+        return redirect(dest)
+    return redirect(url_for('index'))
 
 @app.route('/logout')
 @login_required
