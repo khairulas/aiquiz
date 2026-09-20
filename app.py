@@ -1,5 +1,5 @@
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
 import io
@@ -1204,6 +1204,30 @@ def submit_quiz(public_id):
             })
 
         percentage = round((score / total_score) * 100, 2) if total_score > 0 else 0
+        
+        # --- Prevent rapid duplicate submissions ---
+        from datetime import timedelta
+        dedup_window_minutes = 10  # adjust as needed
+        cutoff = datetime.now(pytz.utc) - timedelta(minutes=dedup_window_minutes)
+
+        # Normalize the name for matching
+        normalized_name = student_name.lower().strip()
+
+        existing_query = (db.collection('quiz_attempts')
+                            .where('quiz_id', '==', public_id)
+                            .where('timestamp', '>=', cutoff))
+
+        for existing_doc in existing_query.stream():
+            existing_data = existing_doc.to_dict()
+            if (existing_data.get('student_name', '').lower().strip() == normalized_name):
+                app.logger.warning(
+                    f"Duplicate submission blocked: '{student_name}' on quiz '{public_id}' "
+                    f"(existing attempt {existing_doc.id})"
+                )
+                flash("You have already submitted this quiz recently. Showing your previous result.", 'warning')
+                return redirect(url_for('view_attempt_result',
+                                        public_id=public_id,
+                                        attempt_id=existing_doc.id))
 
         # --- Save the attempt to Firestore ---
         new_attempt_data = {

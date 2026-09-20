@@ -4,3 +4,5 @@ venv/
 __pycache__/
 app.log
 sa-final.json
+.venv/
+scripts/
