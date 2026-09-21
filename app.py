@@ -121,8 +121,19 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 Session(app)
 
 # --- UiTM identity configuration ---
-UITM_DOMAIN = os.getenv('UITM_EMAIL_DOMAIN', 'uitm.edu.my')
+def _domains(env_name, default):
+    raw = os.getenv(env_name, default)
+    return [d.strip().lower().lstrip('@') for d in raw.split(',') if d.strip()]
+
+STUDENT_DOMAINS = _domains('UITM_STUDENT_DOMAINS', 'uitm.edu.my,student.uitm.edu.my')
+STAFF_DOMAINS   = _domains('UITM_STAFF_DOMAINS', 'uitm.edu.my,staf.uitm.edu.my')
+ALL_DOMAINS     = sorted(set(STUDENT_DOMAINS) | set(STAFF_DOMAINS))
+
+# Shown to users in the sign-in message
+UITM_DOMAIN = STUDENT_DOMAINS[0]
 app.config['UITM_DOMAIN'] = UITM_DOMAIN
+app.config['UITM_DOMAINS_LABEL'] = ' or '.join('@' + d for d in ALL_DOMAINS)
+
 MATRIC_PATTERN = re.compile(r'^\d{10}$')
 ALLOWED_LECTURERS = [
     e.strip().lower()
@@ -132,14 +143,27 @@ ALLOWED_LECTURERS = [
 
 
 def classify_email(email):
-    """Return (role, matric_no) for a UiTM address, or (None, None) if not UiTM."""
+    """
+    Return (role, matric_no) for a recognised UiTM address, or (None, None).
+
+    Students  : 10-digit local part on any student domain.
+    Lecturers : non-numeric local part on any staff domain.
+    """
     email = (email or '').lower().strip()
-    if not email.endswith('@' + UITM_DOMAIN):
+    if '@' not in email:
         return None, None
-    local = email.split('@')[0]
+
+    local, _, domain = email.partition('@')
+
     if MATRIC_PATTERN.match(local):
-        return 'student', local
-    return 'lecturer', None
+        if domain in STUDENT_DOMAINS:
+            return 'student', local
+        return None, None
+
+    if domain in STAFF_DOMAINS:
+        return 'lecturer', None
+
+    return None, None
 
 # Database Configuration
 # --- Firebase Admin SDK Initialization ---
@@ -823,7 +847,7 @@ def login_google():
         redirect_uri = url_for('google_auth_callback', _external=True)
     else:
         redirect_uri = url_for('google_auth_callback', _external=True, _scheme='https')
-    return google_oauth.authorize_redirect(redirect_uri, hd=UITM_DOMAIN)
+    return google_oauth.authorize_redirect(redirect_uri)
 
 @app.route('/auth/google/callback')
 def google_auth_callback():
@@ -846,7 +870,8 @@ def google_auth_callback():
     role, matric_no = classify_email(email)
     if role is None:
         app.logger.warning(f"Rejected non-UiTM sign-in: {email}")
-        flash(f"Please sign in with your UiTM email (@{UITM_DOMAIN}).", 'danger')
+        flash(f"Please sign in with your UiTM email "
+              f"({app.config['UITM_DOMAINS_LABEL']}).", 'danger')
         return redirect(url_for('login'))
 
     matches = list(db.collection('users').where('email', '==', email).stream())
