@@ -544,7 +544,7 @@ def after_request_logging(response):
 
 # --- Core Application Routes ---
 @app.route('/')
-@login_required
+@lecturer_required
 def index():
     search_query = request.args.get('search', '')
     # --- NEW: Capture the view_all parameter ---
@@ -607,7 +607,7 @@ def request_entity_too_large(e):
 
 @app.route('/create-quiz', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
-@login_required
+@lecturer_required
 def create_quiz():
     if request.method == 'POST':
         course_material = ""
@@ -700,7 +700,7 @@ def create_quiz():
     return render_template('index.html', csrf_token=csrf_token)
 
 @app.route('/save-questions', methods=['POST'])
-@login_required
+@lecturer_required
 def save_questions():
     # --- Retrieve the parsed questions from the session ---
     parsed_questions = session.pop('generated_questions', None)
@@ -722,7 +722,8 @@ def save_questions():
             'opens_at': None,
             'closes_at': None,
             'time_limit': None,
-            'analysis_text': None
+            'analysis_text': None,
+            'allow_retakes': False
         }
 
         # Add the new quiz to the 'quizzes' collection
@@ -966,8 +967,11 @@ def reset_password(token):
     return render_template('reset_password.html', token=token, csrf_token=csrf_token)
 
 @app.route('/change-password', methods=['GET', 'POST'])
-@login_required
+@lecturer_required
 def change_password():
+    if not current_user.has_password:
+        flash("Your account signs in with Google, so there is no password to change.", 'info')
+        return redirect(url_for('index'))
     if request.method == 'POST':
         old_password = request.form.get('old_password')
         new_password = request.form.get('new_password')
@@ -1001,7 +1005,7 @@ def change_password():
 # --- Quiz Interaction and Management Routes ---
 
 @app.route('/quiz/<public_id>')
-@login_required
+@lecturer_required
 def view_quiz(public_id):
     try:
         # --- Fetch the quiz document ---
@@ -1045,7 +1049,7 @@ def view_quiz(public_id):
         return redirect(url_for('index'))
 
 @app.route('/quiz/<public_id>/edit', methods=['GET', 'POST'])
-@login_required
+@lecturer_required
 def edit_quiz(public_id):
     # --- Get the quiz document reference ---
     quiz_ref = db.collection('quizzes').document(public_id)
@@ -1088,7 +1092,8 @@ def edit_quiz(public_id):
                 'opens_at': opens_at_utc,  # Store the UTC datetime object
                 'closes_at': closes_at_utc, # Store the UTC datetime object
                 'time_limit': int(request.form.get('time_limit')) if request.form.get('time_limit') else None,
-                'is_active': True if (opens_at_str or closes_at_str) else quiz_data.get('is_active', True)
+                'is_active': True if (opens_at_str or closes_at_str) else quiz_data.get('is_active', True),
+                'allow_retakes': bool(request.form.get('allow_retakes'))
             })
 
             # --- 3. Use a batch to update all questions ---
@@ -1139,23 +1144,33 @@ def edit_quiz(public_id):
 
 
 @app.route('/quiz/<public_id>/take', methods=['GET'])
+@student_required
 def take_quiz(public_id):
     try:
         quiz_ref = db.collection('quizzes').document(public_id)
         quiz_doc = quiz_ref.get()
-
         if not quiz_doc.exists:
             return "Quiz not found", 404
 
         quiz_data = quiz_doc.to_dict()
         quiz_data['public_id'] = public_id
 
-        # --- Timezone-Aware Availability Check ---
+        # --- Already attempted? Send them to their result ---
+        if not quiz_data.get('allow_retakes', False):
+            prior = list(db.collection('quiz_attempts')
+                           .where('quiz_id', '==', public_id)
+                           .where('student_id', '==', current_user.id)
+                           .limit(1).stream())
+            if prior:
+                flash("You have already completed this quiz.", 'info')
+                return redirect(url_for('view_attempt_result',
+                                        public_id=public_id,
+                                        attempt_id=prior[0].id))
+
+        # ---- everything below is unchanged ----
         now_utc = datetime.now(pytz.utc)
         opens_at = quiz_data.get('opens_at')
         closes_at = quiz_data.get('closes_at')
-
-        # Ensure datetimes from Firestore are timezone-aware
         if opens_at and opens_at.tzinfo is None:
             opens_at = pytz.utc.localize(opens_at)
         if closes_at and closes_at.tzinfo is None:
@@ -1166,15 +1181,16 @@ def take_quiz(public_id):
             message = "This quiz has been manually closed by the instructor."
         elif opens_at and now_utc < opens_at:
             opens_at_myt = opens_at.astimezone(MYT)
-            message = f"This quiz is not yet open. It will be available on {opens_at_myt.strftime('%B %d, %Y at %I:%M %p')}."
+            message = (f"This quiz is not yet open. It will be available on "
+                       f"{opens_at_myt.strftime('%B %d, %Y at %I:%M %p')}.")
         elif closes_at and now_utc > closes_at:
             message = "This quiz has closed and is no longer accepting submissions."
 
         if message:
-            app.logger.warning(f"Attempt to access unavailable quiz '{public_id}'. Reason: {message}")
-            return render_template('quiz_unavailable.html', quiz=quiz_data, message=message), 403
+            app.logger.warning(f"Unavailable quiz '{public_id}'. Reason: {message}")
+            return render_template('quiz_unavailable.html', quiz=quiz_data,
+                                   message=message), 403
 
-        # --- Fetch Questions ---
         questions_ref = quiz_ref.collection('questions')
         questions = []
         for q_doc in questions_ref.stream():
@@ -1185,46 +1201,54 @@ def take_quiz(public_id):
         question_type_order = ["True/False", "MCQ", "Fill-in-the-Blank", "Short Answer"]
         sorted_questions = sorted(
             questions,
-            key=lambda q: question_type_order.index(q.get('question_type', '').strip()) if q.get('question_type', '').strip() in question_type_order else len(question_type_order)
+            key=lambda q: question_type_order.index(q.get('question_type', '').strip())
+            if q.get('question_type', '').strip() in question_type_order
+            else len(question_type_order)
         )
 
-        # --- Pass Timer Data to Template ---
         closes_at_iso = closes_at.isoformat() if closes_at else None
-        csrf_token = generate_csrf()
-
-        return render_template(
-            'take_quiz.html',
-            quiz=quiz_data,
-            questions=sorted_questions,
-            time_limit_minutes=quiz_data.get('time_limit'),
-            closes_at_iso=closes_at_iso,
-            csrf_token=csrf_token
-        )
+        return render_template('take_quiz.html', quiz=quiz_data,
+                               questions=sorted_questions,
+                               time_limit_minutes=quiz_data.get('time_limit'),
+                               closes_at_iso=closes_at_iso,
+                               csrf_token=generate_csrf())
     except Exception as e:
         app.logger.error(f"Error loading quiz for taking {public_id}: {str(e)}")
         flash("An error occurred while loading the quiz.", 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('student_dashboard'))
 
 # --- This is the critical route for handling quiz submissions and grading ---
 @app.route('/quiz/<public_id>/submit', methods=['POST'])
 @limiter.limit("10 per minute")
+@student_required
 def submit_quiz(public_id):
     try:
         quiz_ref = db.collection('quizzes').document(public_id)
         quiz_doc = quiz_ref.get()
-
         if not quiz_doc.exists:
             return "Quiz not found", 404
 
         quiz_data = quiz_doc.to_dict()
         now_utc = datetime.now(pytz.utc)
 
-        # --- Server-side name validation ---
-        student_name = (request.form.get('student_name') or '').strip()
-        if not student_name:
-            app.logger.warning(f"Empty student_name submission attempt for quiz '{public_id}'.")
-            message = "You must enter your name before submitting the quiz."
-            return render_template('quiz_unavailable.html', quiz=quiz_data, message=message), 400
+        # --- Identity comes from the session, never the form ---
+        student_name = current_user.full_name or current_user.matric_no
+        student_email = current_user.email
+        student_matric = current_user.matric_no
+
+        # --- Absolute dedup on account identity ---
+        if not quiz_data.get('allow_retakes', False):
+            prior = list(db.collection('quiz_attempts')
+                           .where('quiz_id', '==', public_id)
+                           .where('student_id', '==', current_user.id)
+                           .limit(1).stream())
+            if prior:
+                app.logger.warning(
+                    f"Duplicate submission blocked: {student_matric} on quiz {public_id}")
+                flash("You have already submitted this quiz.", 'warning')
+                return redirect(url_for('view_attempt_result',
+                                        public_id=public_id,
+                                        attempt_id=prior[0].id))
 
         # --- Check for Late Submissions ---
         closes_at = quiz_data.get('closes_at')
@@ -1355,12 +1379,15 @@ def submit_quiz(public_id):
         new_attempt_data = {
             'quiz_id': public_id,
             'quiz_title': quiz_data.get('title'),
+            'student_id': current_user.id,          # NEW
+            'student_email': student_email,         # NEW
+            'student_matric': student_matric,       # NEW
             'student_name': student_name,
             'score': score,
             'total_score': total_score,
             'percentage': percentage,
             'timestamp': firestore.SERVER_TIMESTAMP,
-            'results_detail': results_for_storage  # <-- NEW: full grading saved here
+            'results_detail': results_for_storage
         }
         attempt_ref = db.collection('quiz_attempts').add(new_attempt_data)[1]
 
@@ -1383,6 +1410,7 @@ def submit_quiz(public_id):
 
 # --- Route to view the result of a specific attempt ---
 @app.route('/quiz/<public_id>/result/<attempt_id>', methods=['GET'])
+@login_required
 def view_attempt_result(public_id, attempt_id):
     try:
         quiz_ref = db.collection('quizzes').document(public_id)
@@ -1400,6 +1428,20 @@ def view_attempt_result(public_id, attempt_id):
         # Sanity check: this attempt belongs to this quiz
         if attempt_data.get('quiz_id') != public_id:
             return "Attempt does not belong to this quiz", 404
+
+        # --- Authorization: student who owns it, or the quiz's lecturer ---
+        is_owner_student = (current_user.is_student
+                            and attempt_data.get('student_id') == current_user.id)
+        is_quiz_lecturer = (current_user.is_lecturer
+                            and quiz_data.get('user_id') == current_user.id)
+
+        if not (is_owner_student or is_quiz_lecturer):
+            app.logger.warning(
+                f"Unauthorized result access: user {current_user.id} "
+                f"tried to view attempt {attempt_id}")
+            flash("You are not authorized to view this result.", 'danger')
+            return redirect(url_for('student_dashboard')
+                            if current_user.is_student else url_for('index'))
 
         # Reshape stored results into the format quiz_results.html expects
         results_for_template = []
@@ -1427,9 +1469,35 @@ def view_attempt_result(public_id, attempt_id):
     except Exception as e:
         app.logger.error(f"Error loading attempt result {attempt_id}: {str(e)}")
         return render_template('error.html', message=f"An error occurred. Error: {str(e)}")
+
+@app.route('/student')
+@student_required
+def student_dashboard():
+    attempts = []
+    try:
+        attempts_query = (db.collection('quiz_attempts')
+                            .where('student_id', '==', current_user.id)
+                            .order_by('timestamp',
+                                      direction=firestore.Query.DESCENDING))
+        for doc in attempts_query.stream():
+            a = doc.to_dict()
+            a['id'] = doc.id
+            attempts.append(a)
+    except Exception as e:
+        app.logger.error(
+            f"Error loading dashboard for {current_user.matric_no}: {e}")
+        flash("An error occurred while loading your quiz history.", 'danger')
+
+    total = len(attempts)
+    avg_pct = round(sum(a.get('percentage', 0) for a in attempts) / total, 1) if total else 0
+
+    return render_template('student_dashboard.html',
+                           attempts=attempts,
+                           total_attempts=total,
+                           avg_percentage=avg_pct)
     
 @app.route('/quiz/<public_id>/attempts')
-@login_required
+@lecturer_required
 def view_attempts(public_id):
     try:
         # --- 1. Get and Authorize the Quiz ---
@@ -1496,7 +1564,7 @@ def view_attempts(public_id):
         return redirect(url_for('index'))
 
 @app.route('/quiz/<public_id>/delete', methods=['POST'])
-@login_required
+@lecturer_required
 def delete_quiz(public_id):
     try:
         quiz_ref = db.collection('quizzes').document(public_id)
@@ -1531,7 +1599,7 @@ def delete_quiz(public_id):
 
 @app.route('/quiz/<public_id>/overall_analysis')
 @limiter.limit("3 per minute")
-@login_required
+@lecturer_required
 def overall_analysis(public_id):
     try:
         # --- 1. Get and Authorize the Quiz ---
@@ -1613,6 +1681,45 @@ def overall_analysis(public_id):
     except Exception as e:
         app.logger.error(f"Error generating overall analysis for quiz {public_id}: {str(e)}")
         return render_template('error.html', message=f"An error occurred while generating the overall analysis. Error: {str(e)}")
+
+
+@app.route('/quiz/<public_id>/export')
+@lecturer_required
+def export_attempts(public_id):
+    quiz_doc = db.collection('quizzes').document(public_id).get()
+    if not quiz_doc.exists:
+        flash('Quiz not found.', 'danger')
+        return redirect(url_for('index'))
+
+    quiz_data = quiz_doc.to_dict()
+    if quiz_data.get('user_id') != current_user.id:
+        flash('You are not authorized to export this quiz.', 'danger')
+        return redirect(url_for('index'))
+
+    attempts = (db.collection('quiz_attempts')
+                  .where('quiz_id', '==', public_id)
+                  .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                  .stream())
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Matric No', 'Name', 'Email', 'Score', 'Total',
+                     'Percentage', 'Submitted (MYT)'])
+    for doc in attempts:
+        a = doc.to_dict()
+        ts = a.get('timestamp')
+        ts_str = ts.astimezone(MYT).strftime('%Y-%m-%d %H:%M') if ts else ''
+        writer.writerow([
+            a.get('student_matric', ''), a.get('student_name', ''),
+            a.get('student_email', ''), a.get('score', 0),
+            a.get('total_score', 0), a.get('percentage', 0), ts_str
+        ])
+
+    buf = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+    safe_title = re.sub(r'[^\w\s-]', '', quiz_data.get('title', 'quiz')).strip()
+    filename = f"{safe_title.replace(' ', '_')}_attempts.csv"
+    return send_file(buf, mimetype='text/csv',
+                     as_attachment=True, download_name=filename)
 
 # --- Static Pages and Utility Routes ---
 

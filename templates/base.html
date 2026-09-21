@@ -12,27 +12,33 @@
     <header class="app-header">
         <div class="header-content">
             <div class="header-left">
-                <a href="{{ url_for('index') }}" class="site-title">
+                <a href="{% if current_user.is_authenticated and current_user.is_student %}{{ url_for('student_dashboard') }}{% else %}{{ url_for('index') }}{% endif %}" class="site-title">
                     <img src="{{ url_for('static', filename='images/aiquiz-logo.png') }}" alt="App Logo" style="height: 40px; margin-right: 10px;">
                     <br>AI-Quiz Generator
                 </a>
                 
                 <nav class="main-nav">
                     {% if current_user.is_authenticated %}
-                        <a href="{{ url_for('index') }}" class="nav-link">Dashboard</a>
-                        <a href="{{ url_for('create_quiz') }}" class="nav-link">Create New Quiz</a>
+                        {% if current_user.is_student %}
+                            <a href="{{ url_for('student_dashboard') }}" class="nav-link">My Quizzes</a>
+                            
+                        {% else %}
+                            <a href="{% if current_user.is_authenticated and current_user.is_student %}{{ url_for('student_dashboard') }}{% else %}{{ url_for('index') }}{% endif %}" class="site-title">
+                            <a href="{{ url_for('create_quiz') }}" class="nav-link">Create New Quiz</a>
+                        {% endif %}
                     {% endif %}
                 </nav>
             </div>
-            
+
             <nav class="user-nav">
                 {% if current_user.is_authenticated %}
-                    <span class="user-name">Welcome, {{ current_user.username }}</span>
-                     <a href="{{ url_for('change_password') }}" class="nav-link">Change Password</a>
+                    <span class="user-name">Welcome, {{ current_user.display_name }}</span>
+                    {% if current_user.is_lecturer and current_user.has_password %}
+                        <a href="{{ url_for('change_password') }}" class="nav-link">Change Password</a>
+                    {% endif %}
                     <a href="{{ url_for('logout') }}" class="nav-link">Logout</a>
                 {% else %}
                     <a href="{{ url_for('login') }}" class="nav-link">Login</a>
-                    <a href="{{ url_for('register') }}" class="nav-link">Register</a>
                 {% endif %}
             </nav>
         </div>

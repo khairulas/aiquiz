@@ -31,6 +31,15 @@
                value="{{ quiz.time_limit if quiz.time_limit }}">
     </div>
 
+    <div class="form-group">
+        <label style="display:flex; align-items:center; font-weight:normal;">
+            <input type="checkbox" name="allow_retakes" value="1"
+                   style="width:auto; margin-right:10px;"
+                   {% if quiz.allow_retakes %}checked{% endif %}>
+            Allow students to retake this quiz
+        </label>
+    </div>
+
     <hr>
     <h3>Questions:</h3>
 

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>My Quiz History</h1>
+<p style="color:#666;">
+    {{ current_user.full_name }} &mdash; {{ current_user.matric_no }}
+</p>
+
+{% if total_attempts > 0 %}
+<div class="share-widget">
+    <div class="share-widget-left">
+        <h3>Summary</h3>
+        <p><strong>Quizzes completed:</strong> {{ total_attempts }}</p>
+        <p><strong>Average score:</strong> {{ avg_percentage }}%</p>
+        <p style="font-size:0.85em; color:#888;">
+            History shows quizzes taken from Semester Oct 2026 onwards.
+        </p>
+    </div>
+</div>
+
+<table class="results-table">
+    <thead>
+        <tr>
+            <th>Quiz</th>
+            <th>Score</th>
+            <th>Percentage</th>
+            <th>Date</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in attempts %}
+        <tr>
+            <td>{{ a.quiz_title }}</td>
+            <td>{{ a.score }} / {{ a.total_score }}</td>
+            <td>{{ '%.1f'|format(a.percentage) }}%</td>
+            <td>{{ a.timestamp.strftime('%Y-%m-%d %H:%M') if a.timestamp else '' }}</td>
+            <td>
+                <a href="{{ url_for('view_attempt_result',
+                                    public_id=a.quiz_id, attempt_id=a.id) }}"
+                   class="btn btn-secondary"
+                   style="padding:4px 10px; font-size:0.85em;">Review</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>You haven't completed any quizzes yet. Use the link or QR code your lecturer
+   shares to get started.</p>
+{% endif %}
+{% endblock %}

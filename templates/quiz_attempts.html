@@ -21,12 +21,22 @@
         Generate Overall Class Analysis
     </a>
 </div>
+
+<div class="overall-analysis-link">
+    <a href="{{ url_for('overall_analysis', public_id=quiz.public_id) }}" class="btn">
+        Generate Overall Class Analysis
+    </a>
+    <a href="{{ url_for('export_attempts', public_id=quiz.public_id) }}"
+       class="btn btn-secondary">Download CSV</a>
+</div>
+
 <p>Here are all the attempts submitted by students for this quiz.</p>
 
 {% if attempts %}
     <table class="results-table">
         <thead>
             <tr>
+                <th>Matric No.</th>
                 <th>Student Name</th>
                 <th>Score</th>
                 <th>Percentage</th>
@@ -36,6 +46,7 @@
         <tbody>
             {% for attempt in attempts %}
             <tr>
+                <td>{{ attempt.student_matric or '—' }}</td>
                 <td>{{ attempt.student_name }}</td>
                 <td>{{ attempt.score }} / {{ attempt.total_score }}</td>
                 <td>{{ '%.2f'|format(attempt.percentage) }}%</td>
