@@ -12,7 +12,6 @@ import os
 import time
 #from datetime import datetime, timezone
 from collections import defaultdict
-import re
 import csv
 from functools import wraps
 from flask_session import Session
@@ -575,13 +574,16 @@ def index():
 
             all_quizzes.append(quiz_data)
 
-    except google.api_core.exceptions.FailedPrecondition as e:
-        # If the index fails (which it did in the previous step), redirect to the index creation link
+    except Exception as e:
+        # Render an empty dashboard rather than redirecting to ourselves (which would loop).
         if "The query requires an index" in str(e):
-            flash(f"Error: The dashboard sort query requires a Firebase Index. Please create it using the link provided in the error log. {str(e)}", 'danger')
+            app.logger.error(f"Missing Firestore index for dashboard query: {e}")
+            flash("The dashboard query needs a Firestore index. Open the link in app.log to create it.", 'danger')
         else:
+            app.logger.error(f"Dashboard load error: {e}")
             flash(f"An error occurred while loading the dashboard: {str(e)}", 'danger')
-        return redirect(url_for('index'))
+        return render_template('dashboard.html', quizzes=[],
+                               search_query=search_query, csrf_token=generate_csrf())
 
 
     # Filter in Python (only if a search query is present)
@@ -792,6 +794,9 @@ def login():
                 id=doc.id,
                 username=user_data.get('username'),
                 email=user_data.get('email'),
+                role=user_data.get('role', 'lecturer'),
+                full_name=user_data.get('full_name'),
+                matric_no=user_data.get('matric_no'),
                 password_hash=user_data.get('password_hash')
             )
 
@@ -803,7 +808,8 @@ def login():
 
         login_user(user_obj)
         app.logger.info(f"User '{username}' logged in successfully from IP {request.remote_addr}.")
-        return redirect(url_for('index'))
+        return redirect(url_for('student_dashboard') if user_obj.is_student
+                        else url_for('index'))
 
     csrf_token = generate_csrf()
     return render_template('login.html', csrf_token=csrf_token)
@@ -890,12 +896,12 @@ def google_auth_callback():
     dest = session.pop('post_login_redirect', None)
     if dest:
         return redirect(dest)
-    return redirect(url_for('index'))
+    return redirect(url_for('student_dashboard') if role == 'student' else url_for('index'))
 
 @app.route('/logout')
 @login_required
 def logout():
-    app.logger.info(f"User '{current_user.username}' logged out.")
+    app.logger.info(f"User '{current_user.display_name}' logged out.")
     logout_user()
     return redirect(url_for('login'))
 
@@ -916,6 +922,9 @@ def forgot_password():
                 id=doc.id,
                 username=user_data.get('username'),
                 email=user_data.get('email'),
+                role=user_data.get('role', 'lecturer'),
+                full_name=user_data.get('full_name'),
+                matric_no=user_data.get('matric_no'),
                 password_hash=user_data.get('password_hash')
             )
             send_reset_email(user_obj)
@@ -1351,30 +1360,6 @@ def submit_quiz(public_id):
 
         percentage = round((score / total_score) * 100, 2) if total_score > 0 else 0
         
-        # --- Prevent rapid duplicate submissions ---
-        from datetime import timedelta
-        dedup_window_minutes = 10  # adjust as needed
-        cutoff = datetime.now(pytz.utc) - timedelta(minutes=dedup_window_minutes)
-
-        # Normalize the name for matching
-        normalized_name = student_name.lower().strip()
-
-        existing_query = (db.collection('quiz_attempts')
-                            .where('quiz_id', '==', public_id)
-                            .where('timestamp', '>=', cutoff))
-
-        for existing_doc in existing_query.stream():
-            existing_data = existing_doc.to_dict()
-            if (existing_data.get('student_name', '').lower().strip() == normalized_name):
-                app.logger.warning(
-                    f"Duplicate submission blocked: '{student_name}' on quiz '{public_id}' "
-                    f"(existing attempt {existing_doc.id})"
-                )
-                flash("You have already submitted this quiz recently. Showing your previous result.", 'warning')
-                return redirect(url_for('view_attempt_result',
-                                        public_id=public_id,
-                                        attempt_id=existing_doc.id))
-
         # --- Save the attempt to Firestore ---
         new_attempt_data = {
             'quiz_id': public_id,
