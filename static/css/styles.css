@@ -479,3 +479,30 @@ button:hover {
     border-color: #c3e6cb;
 }
 /* end of styles for alerts */
+
+.quiz-summary {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 14px 0;
+    background: #fafafa;
+}
+.summary-figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    font-size: 0.95em;
+}
+.summary-figures strong { font-variant-numeric: tabular-nums; }
+.sa-note { color: #8a5a20; }
+.summary-warning {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    border-left: 3px solid;
+}
+.summary-warning.caution { background: #fdf4e6; border-color: #c07a1e; color: #7a4d10; }
+.summary-warning.danger  { background: #fdeaea; border-color: #c0392b; color: #8c2a20; }
+.ack { display: block; margin-top: 10px; font-size: 0.92em; }
+.ack input { width: auto; margin-right: 8px; }

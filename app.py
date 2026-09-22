@@ -210,6 +210,10 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in ['true
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
+SUGGESTED_MAX_QUESTIONS = int(os.getenv('SUGGESTED_MAX_QUESTIONS', 20))
+MAX_QUESTIONS_PER_QUIZ = int(os.getenv('MAX_QUESTIONS_PER_QUIZ', 50))
+app.config['SUGGESTED_MAX_QUESTIONS'] = SUGGESTED_MAX_QUESTIONS
+app.config['MAX_QUESTIONS_PER_QUIZ'] = MAX_QUESTIONS_PER_QUIZ
 
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
@@ -365,23 +369,33 @@ def generate_questions(material, configs, total_questions):
     # REMOVED the generation_config that was causing the 400 Error
     model = genai.GenerativeModel('gemini-2.5-flash') 
     
-    breakdown_str = "\n".join([f"- {c['count']} {c['type']} question(s) targeting the Bloom's level: {c['bloom']}." for c in configs])
+    breakdown_str = "\n".join([
+        f"- {c['count']} {c['type']} question(s) at Bloom's level "
+        f"'{c['bloom']}', worth {c['marks']} mark(s) each."
+        for c in configs
+    ])
 
     prompt = f"""
     Generate exactly {total_questions} quiz questions based on the provided course material.
-    You MUST adhere strictly to the following breakdown of question types and complexities:
-    
+    You MUST produce exactly this breakdown — the counts are not suggestions:
+
     {breakdown_str}
 
-    CRITICAL: You MUST respond with only a valid JSON array of objects. Do not include any introductory text, explanations, or markdown formatting (like ```json) outside of the JSON block.
+    Every question object MUST carry the "bloom_level" it was generated for, spelled
+    exactly as listed above, and the "marks" value specified for that group.
+    Questions at higher Bloom's levels (Analyzing, Evaluating, Creating) must require
+    reasoning beyond recall — do not produce a Remembering-style question and label it
+    Analyzing.
 
-    The JSON array should contain one object for each question. Each object must have the following keys:
-    - "type": (String) The exact type of question ("True/False", "MCQ", "Fill-in-the-Blank", or "Short Answer").
-    - "marks": (Integer) A suggested mark, from 1 to 5, based on complexity.
-    - "bloom_level": (String) The specific Bloom's level you targeted based on the requested breakdown.
-    - "text": (String) The content of the question itself.
-    - "options": (Array of Strings) For "MCQ" questions, an array of four option strings. DO NOT include letter labels or prefixes (like A., B., a), b)) inside the option strings. Provide ONLY the answer text. For other types, this should be an empty array [].
-    - "answer": (String) The correct answer. For MCQs, this should be the full text of the correct option.
+    CRITICAL: respond with only a valid JSON array of objects. No prose, no markdown fences.
+
+    Each object must have:
+    - "type": one of "True/False", "MCQ", "Fill-in-the-Blank", "Short Answer".
+    - "marks": (Integer) exactly as specified for that group above.
+    - "bloom_level": (String) exactly as specified for that group above.
+    - "text": (String) the question.
+    - "options": (Array of Strings) four options for MCQ, no letter prefixes. [] otherwise.
+    - "answer": (String) the correct answer. For MCQ, the full text of the correct option.
 
     COURSE MATERIAL:
     "{material}"
@@ -664,29 +678,52 @@ def create_quiz():
         total_questions = 0
 
         # Map checkbox names to their specific input field names
-        types_map = {
-            'qtype_tf': ('True/False', 'count_tf', 'bloom_tf'),
-            'qtype_mcq': ('MCQ', 'count_mcq', 'bloom_mcq'),
-            'qtype_fib': ('Fill-in-the-Blank', 'count_fib', 'bloom_fib'),
-            'qtype_sa': ('Short Answer', 'count_sa', 'bloom_sa')
-        }
+                # --- Parse the dynamic configuration rows ---
+        
+        VALID_TYPES = {'True/False', 'MCQ', 'Fill-in-the-Blank', 'Short Answer'}
+        VALID_BLOOMS = {'Remembering', 'Understanding', 'Applying',
+                        'Analyzing', 'Evaluating', 'Creating'}
 
-        for cb_name, (display_name, count_name, bloom_name) in types_map.items():
-            if form_data.get(cb_name): 
-                try:
-                    count = int(form_data.get(count_name, 0))
-                except ValueError:
-                    count = 0
-                
-                if count > 0:
-                    bloom = form_data.get(bloom_name)
-                    configs.append({'type': display_name, 'count': count, 'bloom': bloom})
-                    total_questions += count
+        row_types  = form_data.getlist('q_type')
+        row_counts = form_data.getlist('q_count')
+        row_blooms = form_data.getlist('q_bloom')
+        row_marks  = form_data.getlist('q_marks')
 
-        # This is the NEW validation that replaces the old one!
+        merged = {}   # (type, bloom, marks) -> count
+        for t, c, b, m in zip(row_types, row_counts, row_blooms, row_marks):
+            t, b = t.strip(), b.strip()
+            if t not in VALID_TYPES or b not in VALID_BLOOMS:
+                continue
+            try:
+                count = int(c)
+                marks = int(m)
+            except (TypeError, ValueError):
+                continue
+            if count < 1 or marks < 1:
+                continue
+            key = (t, b, marks)
+            merged[key] = merged.get(key, 0) + count
+
+        configs = [
+            {'type': t, 'bloom': b, 'marks': m, 'count': n}
+            for (t, b, m), n in merged.items()
+        ]
+        total_questions = sum(c['count'] for c in configs)
+
         if total_questions == 0:
-            flash("Please select at least one question type and ensure its count is greater than 0.", 'danger')
+            flash("Add at least one row with a count of 1 or more.", 'danger')
             return redirect(url_for('index'))
+
+        if total_questions > MAX_QUESTIONS_PER_QUIZ:
+            flash(f"That's {total_questions} questions. The limit is "
+                  f"{MAX_QUESTIONS_PER_QUIZ} — split it into two quizzes.", 'danger')
+            return redirect(url_for('index'))
+
+        if total_questions > SUGGESTED_MAX_QUESTIONS:
+            app.logger.info(
+                f"Long quiz generated by {current_user.email}: "
+                f"{total_questions} questions, "
+                f"{sum(c['count'] for c in configs if c['type'] == 'Short Answer')} short answer.")
 
         sanitized_course_material = clean(course_material)
         try:
@@ -698,6 +735,21 @@ def create_quiz():
 
         # --- NEW: Cleaner parsing block ---
         questions_list_for_display = parse_questions(questions_text)
+
+                # --- Reconcile what the AI returned against what was requested ---
+        from collections import Counter
+        got = Counter((q.get('type', '').strip(), q.get('bloom_level', '').strip())
+                      for q in questions_list_for_display)
+        shortfalls = []
+        for c in configs:
+            actual = got.get((c['type'], c['bloom']), 0)
+            if actual != c['count']:
+                shortfalls.append(f"{c['type']} / {c['bloom']}: asked {c['count']}, got {actual}")
+
+        if shortfalls:
+            app.logger.warning(f"Generation mismatch: {'; '.join(shortfalls)}")
+            flash("The AI didn't match your breakdown exactly: " + "; ".join(shortfalls) +
+                  ". Review before saving, or regenerate.", 'warning')
 
         if not questions_list_for_display:
             flash('The AI was unable to generate valid questions. Please try again or simplify your request.', 'danger')
@@ -828,6 +880,12 @@ def login():
         if user_obj is None or not user_obj.check_password(password):
             app.logger.warning(f"Failed login attempt for username '{username}' from IP {request.remote_addr}.")
             flash('Invalid username or password.', 'danger')
+            return redirect(url_for('login'))
+
+        if not user_obj.is_lecturer or (user_obj.email or '').lower() not in ALLOWED_LECTURERS:
+            app.logger.warning(f"Password login refused for non-staff account '{username}'.")
+            flash("Password sign-in is for approved staff only. "
+                  "Students, please use the UiTM Google sign-in button.", 'danger')
             return redirect(url_for('login'))
 
         login_user(user_obj)
